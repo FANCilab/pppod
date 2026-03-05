@@ -24,7 +24,7 @@ G = G(:,:, 3:end);
 curedR = mat2gray(R);
 neuSize = 10; 
 sig = 1;
-thR = zstack.removeBackground(curedR, sig, neuSize);
+thR = prism.removeBackground(curedR, sig, neuSize);
 
 %% detect somas with cellpose, segmenting 2D max projection
 
