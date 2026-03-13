@@ -1,0 +1,47 @@
+function add_SVDcomps(db)
+
+
+% if ~isfield (db, 'nPlanes')
+%     info = ppbox.infoPopulateTempLFR(db.mouse_name, db.date, db.expts);
+%     db.nPlanes = info.nPlanes;
+% end
+info= getExpInfo(db.subject , db.date , db.exp(db.expID), 1);
+
+switch db.s2p_version
+    case 'python'
+        for iPlane = 1:db.n_planes
+
+            % s2p_folder = fullfile(db.root_storage, db.mouse_name, db.date, sprintf('%d', db.exp_n),'suite2P', sprintf('plane%d', iPlane-1));
+            % s2p_folder = fullfile(db.root_storage, db.subject, db.date, sprintf('%d', db.exp),'suite2P', sprintf('plane%d', iPlane-1));
+            s2p_folder = fullfile(info.folder2p, sprintf('plane%d', iPlane-1));
+            s2p_file = fullfile(s2p_folder, 'Fall.mat');
+            load(s2p_file, 'ops');
+            s2p_ops = fullfile(s2p_folder, 'ops.npy');
+            readNPY(s2p_ops)
+
+            ops.mouse_name = db.subject ;
+            ops.date = db.date   ;
+            ops.exp_n = db.exp;
+            ops.save_path = s2p_folder;
+            ops.iplane = iPlane-1;
+
+            mov2svd_py(ops);
+
+        end
+    case 'matlab' % not sure this section works
+
+        for iPlane = 1:db.nPlanes
+
+            [root, ~, ~, refSVD, refRaw] = starter.getAnalysisRefs(db.mouse_name, db.date, db.expts, iPlane);
+
+            if ~exist(fullfile(root, refSVD), 'file')
+
+                load(fullfile(root, refRaw), 'ops');
+                mov2svd(ops);
+
+            end
+        end
+end
+
+
+end
