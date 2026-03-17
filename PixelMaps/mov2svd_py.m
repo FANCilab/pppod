@@ -15,10 +15,10 @@ ops.NavgFramesSVD = floor(ntotframes/nt0);
 nimgbatch = nt0 * floor(2000/nt0);
 
 catch
-ops.NavgFramesSVD   = min(5000, ntotframes);
+ops.NavgFramesSVD   = min(4000, ntotframes);
 nt0 = ceil(ntotframes / ops.NavgFramesSVD);
 ops.NavgFramesSVD = floor(ntotframes/nt0);
-nimgbatch = nt0 * floor(2000/nt0);
+nimgbatch = nt0 * floor(1000/nt0);
 end
 
 %%
@@ -140,12 +140,12 @@ if ~exist(ops.save_path, 'dir')
     mkdir(ops.save_path)
 end
 
-try % this is faster, but is limited to 2GB files
+% try % this is faster, but is limited to 2GB files
+%     save(sprintf('%s/SVD_%s_%s_plane%d.mat', ops.save_path, ...
+%         ops.mouse_name, ops.date, ops.iplane), 'U', 'Sv', 'Vcell', 'ops', '-v6');
+% catch % this takes a bit less space, but is significantly slower
     save(sprintf('%s/SVD_%s_%s_plane%d.mat', ops.save_path, ...
-        ops.mouse_name, ops.date, ops.iplane), 'U', 'Sv', 'Vcell', 'ops', '-v6');
-catch % this takes a bit less space, but is significantly slower
-    save(sprintf('%s/SVD_%s_%s_plane%d.mat', ops.save_path, ...
-        ops.mouse_name, ops.date, ops.iplane), 'U', 'Sv', 'Vcell', 'ops');
-end
+        ops.mouse_name, ops.date, ops.iplane), 'U', 'Sv', 'Vcell', 'ops', '-v7.3');
+% end
 
 % keyboard;

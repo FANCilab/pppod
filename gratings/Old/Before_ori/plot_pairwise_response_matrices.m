@@ -1,8 +1,8 @@
 function plot_pairwise_response_matrices(canon, paramInfos, iNeuron, saveFolder, opts)
 % PLOT_PAIRWISE_RESPONSE_MATRICES Plot 2D mean response matrices for all active pairs.
 %
-% For each pair of active or derived stimulus parameters, the response matrix
-% is the mean across repeats and across all remaining stimulus dimensions.
+% For each pair of active stimulus parameters, the response matrix is the
+% mean across repeats and across all remaining stimulus dimensions.
 
     nParams = numel(paramInfos);
     if nParams < 2
@@ -13,18 +13,14 @@ function plot_pairwise_response_matrices(canon, paramInfos, iNeuron, saveFolder,
     nPairs = size(pairIdx, 1);
 
     matrixList = cell(1, nPairs);
-    xValuesList = cell(1, nPairs);
-    yValuesList = cell(1, nPairs);
     allVals = [];
 
     for iPair = 1:nPairs
         p1 = pairIdx(iPair, 1);
         p2 = pairIdx(iPair, 2);
 
-        matrixList{iPair} = compute_pairwise_response_matrix(canon, paramInfos(p1), paramInfos(p2), iNeuron);
-        [yValuesList{iPair}, yOrder] = sort(paramInfos(p1).values(:)');
-        [xValuesList{iPair}, xOrder] = sort(paramInfos(p2).values(:)');
-        matrixList{iPair} = matrixList{iPair}(yOrder, xOrder);
+        matrixList{iPair} = compute_pairwise_response_matrix( ...
+            canon.amp6, paramInfos(p1).dim, paramInfos(p2).dim, iNeuron);
 
         finiteVals = matrixList{iPair}(isfinite(matrixList{iPair}));
         allVals = [allVals; finiteVals(:)]; %#ok<AGROW>
@@ -36,30 +32,23 @@ function plot_pairwise_response_matrices(canon, paramInfos, iNeuron, saveFolder,
 
     figWidth = max(320 * nCols, 500);
     figHeight = max(280 * nRows, 320);
-    prevVisible = get(groot, 'DefaultFigureVisible');
-    cleanupObj = onCleanup(@() set(groot, 'DefaultFigureVisible', prevVisible)); %#ok<NASGU>
-    if isfield(opts, 'visible') && strcmpi(opts.visible, 'off')
-        set(groot, 'DefaultFigureVisible', 'off');
-    end
-
     fig = figure('Visible', opts.visible, 'Color', 'w', ...
         'Position', [100 100 figWidth figHeight]);
-    set(fig, 'Visible', opts.visible);
     colormap(parula);
 
     for iPair = 1:nPairs
         p1 = pairIdx(iPair, 1);
         p2 = pairIdx(iPair, 2);
 
-        ax = subplot(nRows, nCols, iPair, 'Parent', fig); %#ok<LAXES>
+        ax = subplot(nRows, nCols, iPair); %#ok<LAXES>
         imagesc(ax, matrixList{iPair});
         set(ax, 'YDir', 'normal');
         if ~isempty(cLimits)
             caxis(ax, cLimits);
         end
 
-        valuesX = xValuesList{iPair};
-        valuesY = yValuesList{iPair};
+        valuesX = paramInfos(p2).values(:)';
+        valuesY = paramInfos(p1).values(:)';
         set(ax, 'XTick', 1:numel(valuesX), 'XTickLabel', local_tick_labels(valuesX));
         set(ax, 'YTick', 1:numel(valuesY), 'YTickLabel', local_tick_labels(valuesY));
 
@@ -84,6 +73,8 @@ function plot_pairwise_response_matrices(canon, paramInfos, iNeuron, saveFolder,
 end
 
 function cLimits = local_compute_clim(allVals)
+% LOCAL_COMPUTE_CLIM Shared color limits across all pairwise matrices.
+
     finiteVals = allVals(isfinite(allVals));
     if isempty(finiteVals)
         cLimits = [];
@@ -102,5 +93,7 @@ function cLimits = local_compute_clim(allVals)
 end
 
 function labels = local_tick_labels(values)
+% LOCAL_TICK_LABELS Format numeric axis tick labels.
+
     labels = arrayfun(@(x) sprintf('%.3g', x), values, 'UniformOutput', false);
 end

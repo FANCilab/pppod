@@ -5,14 +5,7 @@ function plot_even_odd_scatter(x, y, R, P, isResponsive, iNeuron, saveFolder, op
     xv = x(valid);
     yv = y(valid);
 
-    prevVisible = get(groot, 'DefaultFigureVisible');
-    cleanupObj = onCleanup(@() set(groot, 'DefaultFigureVisible', prevVisible)); %#ok<NASGU>
-    if isfield(opts, 'visible') && strcmpi(opts.visible, 'off')
-        set(groot, 'DefaultFigureVisible', 'off');
-    end
-
     fig = figure('Visible', opts.visible, 'Color', 'w');
-    set(fig, 'Visible', opts.visible);
     ax = axes('Parent', fig); %#ok<LAXES>
     hold(ax, 'on');
 

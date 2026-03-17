@@ -18,13 +18,13 @@ end
 
 
 info.subject=animal;
-info.expDate=expDate;
+info.date=expDate;
 info.exp=exp;
-info.expRef= sprintf('%s_%s_%d', info.subject,info.expDate, info.exp);
+info.expRef= sprintf('%s_%s_%d', info.subject,info.date, info.exp);
 
 dataFolders = { 'D:\Data\suite2p\','Z:\Data\2P','\\10.233.25.135\Data\2P'}; %edit this so that the first one is your local data folder
 for k = 1:length(dataFolders)
-    folder = fullfile(dataFolders{k}, info.subject, info.expDate, num2str(info.exp));
+    folder = fullfile(dataFolders{k}, info.subject, info.date, num2str(info.exp));
     if exist(folder, 'dir') ~= 0
         info.folder2p = folder;
         thisServer = dataFolders{k};
@@ -32,12 +32,13 @@ for k = 1:length(dataFolders)
     end
 end
 info.folderZstack = fullfile(info.folder2p, 'zStack');
-info.basename2p=sprintf('%s_%s_%d_2P', info.subject, info.expDate, info.exp);
+info.basename2p=sprintf('%s_%s_%d_2P', info.subject, info.date, info.exp);
 
 rawDataFolders = {'Z:\Data\2P','\\10.233.25.135\Data\2P'};
 for k = 1:length(dataFolders)
-    folder = fullfile(rawDataFolders{k}, info.subject, info.expDate, num2str(info.exp));
+    folder = fullfile(rawDataFolders{k}, info.subject, info.date, num2str(info.exp));
     if exist(folder, 'dir') ~= 0
+        info.root_storage = rawDataFolders{k};
         info.folder2praw = folder;
         thisServer = dataFolders{k};
         break
@@ -70,9 +71,10 @@ if get_2p_info
         hh=header{1};
 
         values = getVarFromHeader(hh, ...
-            {'\nSI.hRoiManager.','\nSI.hRoiManager.','\nSI.hRoiManager.','\nSI.hRoiManager.', '\nSI.hRoiManager.','\nSI.hChannels.', '\nSI.hStackManager.',},...
-            {'scanZoomFactor',  'linesPerFrame',    'pixelsPerLine',    'scanFrameRate',   'scanVolumeRate',  'channelSave',      'numSlices'});
-       
+            {'\nSI.hRoiManager.','\nSI.hRoiManager.','\nSI.hRoiManager.','\nSI.hRoiManager.', '\nSI.hRoiManager.','\nSI.hChannels.', '\nSI.hStackManager.', '\nSI.hStackManager.'},...
+            {'scanZoomFactor',  'linesPerFrame',    'pixelsPerLine',    'scanFrameRate',   'scanVolumeRate',  'channelSave',      'numSlices', 'zs'});
+  
+
         info.scanZoomFactor = str2double(values{1});
         info.zoomFactor = str2double(values{1});
         info.scanLinesPerFrame = str2double(values{2});
@@ -87,7 +89,12 @@ if get_2p_info
         end
 
         info.nPlanes = str2double(values{7});
-    
+        info.zs = str2double(values{8});
+
+        if info.nPlanes ~=numel(info.zs)
+            info.nPlanes = numel(info.zs);
+        end
+
     catch
         warning('NO IMAGING DATA FOUND, returning basic exp info')
     end

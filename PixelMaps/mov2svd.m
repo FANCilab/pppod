@@ -159,12 +159,11 @@ end
 
 %%% save SVDs
 U = reshape(U, numel(ops.yrange), numel(ops.xrange), []);
-try % this is faster, but is limited to 2GB files
+% try % this is faster, but is limited to 2GB files
+%     save(sprintf('%s/SVD_%s_%s_plane%d.mat', ops.ResultsSavePath, ...
+%         ops.mouse_name, ops.date, iplane), 'U', 'Sv', 'Vcell', 'ops', '-v6');
+% catch % this takes a bit less space, but is significantly slower
     save(sprintf('%s/SVD_%s_%s_plane%d.mat', ops.ResultsSavePath, ...
-        ops.mouse_name, ops.date, iplane), 'U', 'Sv', 'Vcell', 'ops', '-v6');
-catch % this takes a bit less space, but is significantly slower
-    save(sprintf('%s/SVD_%s_%s_plane%d.mat', ops.ResultsSavePath, ...
-        ops.mouse_name, ops.date, iplane), 'U', 'Sv', 'Vcell', 'ops');
-end
+        ops.mouse_name, ops.date, iplane), 'U', 'Sv', 'Vcell', 'ops', '-v7.3');
 
 % keyboard;

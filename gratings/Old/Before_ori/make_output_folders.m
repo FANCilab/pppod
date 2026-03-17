@@ -9,13 +9,11 @@ function out = make_output_folders(targetFolder)
     out.root = targetFolder;
     out.responsiveness = fullfile(targetFolder, 'responsiveness');
     out.directionTimecourses = fullfile(targetFolder, 'direction_timecourses');
-    out.orientationTimecourses = fullfile(targetFolder, 'orientation_timecourses');
     out.sizeTimecourses = fullfile(targetFolder, 'size_timecourses');
     out.tfTimecourses = fullfile(targetFolder, 'tf_timecourses');
     out.sfTimecourses = fullfile(targetFolder, 'sf_timecourses');
     out.combinedTuning = fullfile(targetFolder, 'combined_tuning');
     out.pairwiseMatrices = fullfile(targetFolder, 'pairwise_response_matrices');
-    out.summaryDistributions = fullfile(targetFolder, 'summary_distributions');
 
     folderNames = struct2cell(out);
     for iFolder = 1:numel(folderNames)

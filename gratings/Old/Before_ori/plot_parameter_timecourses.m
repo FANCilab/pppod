@@ -10,26 +10,16 @@ function plot_parameter_timecourses(tcByParam, t, paramValues, paramName, iNeuro
         return
     end
 
-    [paramValues, sortIdx] = sort(paramValues(:)');
-    tcByParam = tcByParam(sortIdx, :, :);
-
     figWidth = max(320 * nLevels, 500);
-    prevVisible = get(groot, 'DefaultFigureVisible');
-    cleanupObj = onCleanup(@() set(groot, 'DefaultFigureVisible', prevVisible)); %#ok<NASGU>
-    if isfield(opts, 'visible') && strcmpi(opts.visible, 'off')
-        set(groot, 'DefaultFigureVisible', 'off');
-    end
-
     fig = figure('Visible', opts.visible, 'Color', 'w', ...
         'Position', [100 100 figWidth 300]);
-    set(fig, 'Visible', opts.visible);
 
     yLimits = local_compute_y_limits(tcByParam);
-    axesHandles = gobjects(1, nLevels);
+    axesHandles = [];
 
     for iLevel = 1:nLevels
-        ax = subplot(1, nLevels, iLevel, 'Parent', fig); %#ok<LAXES>
-        axesHandles(iLevel) = ax;
+        ax = subplot(1, nLevels, iLevel); %#ok<LAXES>
+        axesHandles = [axesHandles, ax]; %#ok<AGROW>
         hold(ax, 'on');
 
         trials = squeeze(tcByParam(iLevel, :, :));

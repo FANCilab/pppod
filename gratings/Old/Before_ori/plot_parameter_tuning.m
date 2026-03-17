@@ -6,7 +6,6 @@ function plot_parameter_tuning(canon, paramInfos, iNeuron, saveFolder, opts)
 %   Row 2: mean +/- standard deviation across trials
 %
 % Each active parameter occupies one column.
-% The top row and bottom row use separate shared y-limits.
 
     nParams = numel(paramInfos);
     if nParams == 0
@@ -16,47 +15,28 @@ function plot_parameter_tuning(canon, paramInfos, iNeuron, saveFolder, opts)
     ampByParam = cell(1, nParams);
     meanResp = cell(1, nParams);
     stdResp = cell(1, nParams);
-    sortedValues = cell(1, nParams);
-    allTopY = [];
-    allBottomY = [];
+    allY = [];
 
     for iParam = 1:nParams
-        currentAmp = group_trials_by_parameter_amp(canon, paramInfos(iParam), iNeuron);
-        currentValues = paramInfos(iParam).values(:)';
-        [currentValues, sortIdx] = sort(currentValues);
-        currentAmp = currentAmp(sortIdx, :);
+        ampByParam{iParam} = reshape_amp_by_parameter(canon.amp6, paramInfos(iParam).dim, iNeuron);
+        meanResp{iParam} = mean(ampByParam{iParam}, 2, 'omitnan');
+        stdResp{iParam} = std(ampByParam{iParam}, 0, 2, 'omitnan');
 
-        ampByParam{iParam} = currentAmp;
-        sortedValues{iParam} = currentValues;
-        meanResp{iParam} = mean(currentAmp, 2, 'omitnan');
-        stdResp{iParam} = std(currentAmp, 0, 2, 'omitnan');
-
-        finiteTrials = currentAmp(isfinite(currentAmp));
-        finiteMeans = meanResp{iParam}(isfinite(meanResp{iParam}));
+        finiteTrials = ampByParam{iParam}(isfinite(ampByParam{iParam}));
         finiteUpper = meanResp{iParam} + stdResp{iParam};
         finiteLower = meanResp{iParam} - stdResp{iParam};
-
-        allTopY = [allTopY; finiteTrials(:); finiteMeans(:)]; %#ok<AGROW>
-        allBottomY = [allBottomY; finiteUpper(isfinite(finiteUpper)); finiteLower(isfinite(finiteLower))]; %#ok<AGROW>
+        allY = [allY; finiteTrials(:); finiteUpper(isfinite(finiteUpper)); finiteLower(isfinite(finiteLower))]; %#ok<AGROW>
     end
 
-    yLimitsTop = local_compute_y_limits(allTopY);
-    yLimitsBottom = local_compute_y_limits(allBottomY);
+    yLimits = local_compute_y_limits(allY);
     figWidth = max(320 * nParams, 500);
-    prevVisible = get(groot, 'DefaultFigureVisible');
-    cleanupObj = onCleanup(@() set(groot, 'DefaultFigureVisible', prevVisible)); %#ok<NASGU>
-    if isfield(opts, 'visible') && strcmpi(opts.visible, 'off')
-        set(groot, 'DefaultFigureVisible', 'off');
-    end
-
     fig = figure('Visible', opts.visible, 'Color', 'w', ...
         'Position', [100 100 figWidth 650]);
-    set(fig, 'Visible', opts.visible);
 
     for iParam = 1:nParams
-        values = sortedValues{iParam};
+        values = paramInfos(iParam).values(:)';
 
-        axTop = subplot(2, nParams, iParam, 'Parent', fig); %#ok<LAXES>
+        axTop = subplot(2, nParams, iParam); %#ok<LAXES>
         hold(axTop, 'on');
 
         currentAmp = ampByParam{iParam};
@@ -79,7 +59,7 @@ function plot_parameter_tuning(canon, paramInfos, iNeuron, saveFolder, opts)
             'MarkerSize', 6, ...
             'LineWidth', 1.0);
 
-        ylim(axTop, yLimitsTop);
+        ylim(axTop, yLimits);
         local_set_x_axis(axTop, values);
         title(axTop, sprintf('%s | trials + mean', paramInfos(iParam).prettyName), ...
             'Interpreter', 'none');
@@ -88,7 +68,7 @@ function plot_parameter_tuning(canon, paramInfos, iNeuron, saveFolder, opts)
         end
         box(axTop, 'off');
 
-        axBottom = subplot(2, nParams, nParams + iParam, 'Parent', fig); %#ok<LAXES>
+        axBottom = subplot(2, nParams, nParams + iParam); %#ok<LAXES>
         hold(axBottom, 'on');
 
         errorbar(axBottom, values, meanResp{iParam}, stdResp{iParam}, 'k-o', ...
@@ -96,7 +76,7 @@ function plot_parameter_tuning(canon, paramInfos, iNeuron, saveFolder, opts)
             'MarkerFaceColor', 'k', ...
             'MarkerSize', 6);
 
-        ylim(axBottom, yLimitsBottom);
+        ylim(axBottom, yLimits);
         local_set_x_axis(axBottom, values);
         xlabel(axBottom, paramInfos(iParam).prettyName, 'Interpreter', 'none');
         if iParam == 1
@@ -116,7 +96,9 @@ function plot_parameter_tuning(canon, paramInfos, iNeuron, saveFolder, opts)
 end
 
 function local_set_x_axis(ax, values)
-    values = sort(values(:)');
+% LOCAL_SET_X_AXIS Configure x-limits and tick labels for numeric parameter values.
+
+    values = values(:)';
     if isempty(values)
         return
     end
@@ -139,6 +121,8 @@ function local_set_x_axis(ax, values)
 end
 
 function yLimits = local_compute_y_limits(allY)
+% LOCAL_COMPUTE_Y_LIMITS Compute shared y-limits for tuning plots.
+
     finiteVals = allY(isfinite(allY));
     if isempty(finiteVals)
         yLimits = [0 1];

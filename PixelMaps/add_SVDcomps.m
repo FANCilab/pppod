@@ -13,11 +13,18 @@ switch db.s2p_version
 
             % s2p_folder = fullfile(db.root_storage, db.mouse_name, db.date, sprintf('%d', db.exp_n),'suite2P', sprintf('plane%d', iPlane-1));
             % s2p_folder = fullfile(db.root_storage, db.subject, db.date, sprintf('%d', db.exp),'suite2P', sprintf('plane%d', iPlane-1));
-            s2p_folder = fullfile(info.folder2p, sprintf('plane%d', iPlane-1));
+           
+            if numel(db.exp)>1
+                exp_str = sprintf('%d_', db.exp);
+                s2p_folder = fullfile(db.root_storage,  info.subject, info.date, exp_str(1:end-1), sprintf('plane%d', iPlane-1));
+            else
+                s2p_folder = fullfile(info.folder2p,sprintf('plane%d', iPlane-1));
+            end
+
             s2p_file = fullfile(s2p_folder, 'Fall.mat');
             load(s2p_file, 'ops');
-            s2p_ops = fullfile(s2p_folder, 'ops.npy');
-            readNPY(s2p_ops)
+            % s2p_ops = fullfile(s2p_folder, 'ops.npy');
+            % readNPY(s2p_ops)
 
             ops.mouse_name = db.subject ;
             ops.date = db.date   ;

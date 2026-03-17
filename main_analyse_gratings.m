@@ -1,25 +1,39 @@
 clear;
 
 %% database of the recording
+% 
+% i = 0;
+% 
+% i = i+1;
+% db(i).subject    = 'HS028'; % animal name
+% db(i).date          = '20260216'; % date of the recording
+% db(i).exp         = [2]; % all the experiments in the recording
+% db(i).expID         = 1; % the experiment you want to compute pixel map of
+% db(i).n_planes       = 5;
+% db(i).fun_channel   = 1;
+% db(i).n_channels    = 2;
+% db(i).s2p_version   = 'python';
+% db(i).root_storage   ='Z:\Data\2P';
+% db(i).stim_type  = 'gratings';
 
 i = 0;
 
 i = i+1;
-db(i).subject    = 'HS028'; % animal name
-db(i).date          = '20260216'; % date of the recording
-db(i).exp         = [2]; % all the experiments in the recording
+db(i).subject    = 'NM023'; % animal name
+db(i).date          = '20260209'; % date of the recording
+db(i).exp         = [1 2]; % all the experiments in the recording
 db(i).expID         = 1; % the experiment you want to compute pixel map of
-db(i).n_planes       = 5;
+db(i).n_planes       = 2;
 db(i).fun_channel   = 1;
 db(i).n_channels    = 1;
 db(i).s2p_version   = 'python';
-db(i).root_storage   ='Z:\Data\2P';
+db(i).root_storage   ='D:\Data\suite2p';
 db(i).stim_type  = 'gratings';
 
 %% Set path to relevant code
 
 if ispc
-    code_repo = 'C:\Users\User\Documents\Code';
+    code_repo = 'C:\Users\User\Documents\Code\pppod';
 else
     % code_repo = 'D:\OneDrive - Fondazione Istituto Italiano Tecnologia\Documents\Code\retinotopy\';
 end
@@ -27,15 +41,15 @@ end
 cd(code_repo);
 addpath(genpath(code_repo));
 addpath(genpath('C:\Users\User\Documents\Code\Suite2P_Matlab'))
-addpath('C:\Users\User\Documents\Code\FedBox');
-addpath('C:\Users\User\Documents\Code\FedBox\rastermap_matlab');
+% addpath('C:\Users\User\Documents\Code\FedBox');
+% addpath('C:\Users\User\Documents\Code\FedBox\rastermap_matlab');
 
 
 %% load the data
 % edit this function to point to your data folders
 info= getExpInfo(db(i).subject , db(i).date , db(i).exp(db(i).expID), 1);
 
-targetPlane = 4;
+targetPlane = 1;
 % targetplane = 'combined';
 
 switch db.s2p_version
@@ -43,9 +57,15 @@ switch db.s2p_version
 
         if isnumeric (targetPlane)
             % python indexes from 0
+
+            if numel(db(i).exp)>1
+            exp_str = sprintf('%d_', db(i).exp);
+            s2p_folder = fullfile(db(i).root_storage,  info.subject, info.expDate, exp_str(1:end-1), sprintf('plane%d', targetPlane-1));
+            else
             s2p_folder = fullfile(info.folder2p,sprintf('plane%d', targetPlane-1));
+            end
         else
-            s2p_folder = fullfile(info.folder2p,targetPlane-1);
+            s2p_folder = fullfile(info.folder2p,targetPlane);
         end
 
         s2p_file = sprintf('%s/Fall.mat', s2p_folder);
@@ -72,21 +92,9 @@ neurons = s2pUtils.estimateNeuropil_LFR(neurons_raw, neuropil);
 
 neurons = zscore(neurons, [], 2);
 
-%% raster map
-
-[nN, nT] = size(neurons);
-
-[iclustup, isort, Vout] = activityMap(gaussFilt(neurons',10)');
-
-neurons_sorted = neurons(isort,:);
-
-figure('Color', 'White');
-imagesc(frameTime, 1:nN, imgaussfilt(neurons_sorted,1) ); hold on
-xlabel('Time(s)');
-ylabel('Neurons (zscore)');
 %% load the stimulus data
 
-event = bonsai.load_events(db);
+event = bonsai.load_events(info);
 
 planeFrameTimes = event.frame.on(targetPlane:info.nPlanes:end);
 
@@ -134,8 +142,7 @@ opts.saveExt = 'png';
 opts.visible = 'off';
 
 results = analyze_grating_experiment(data, targetFolder, opts);
-
-
+plot_results_distributions(results, targetFolder, opts)
 %%
 
 ppbox.plotSweepResp_LFR(permute(resp(interestingN,:,:,:), [2 3 4 1]), kernelTime, 2)

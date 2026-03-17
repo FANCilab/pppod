@@ -1,4 +1,5 @@
-function out = analyze_parameter_tuning(canon, paramInfo, isResponsive, saveFolderTc, opts)
+function out = analyze_parameter_tuning(canon, paramName, paramValues, paramDim, ...
+    isResponsive, saveFolderTc, opts)
 % ANALYZE_PARAMETER_TUNING Generic mean-based analysis for one stimulus parameter.
 %
 % For each responsive neuron this function:
@@ -6,9 +7,9 @@ function out = analyze_parameter_tuning(canon, paramInfo, isResponsive, saveFold
 %   - groups trial amplitudes by the requested parameter
 %   - computes mean and standard deviation across pooled trials
 %   - finds the preferred parameter value from the maximum mean response
-%   - computes DSI for direction tuning and OSI for orientation tuning
+%   - computes DSI for direction tuning
 
-    nLevels = numel(paramInfo.values);
+    nLevels = numel(paramValues);
     nNeurons = canon.nNeurons;
 
     out = struct();
@@ -16,13 +17,10 @@ function out = analyze_parameter_tuning(canon, paramInfo, isResponsive, saveFold
     out.stdResponses = nan(nLevels, nNeurons);
     out.preferredValue = nan(1, nNeurons);
 
-    switch lower(paramInfo.name)
+    switch lower(paramName)
         case 'direction'
             out.preferredDirection = nan(1, nNeurons);
             out.DSI = nan(1, nNeurons);
-        case 'orientation'
-            out.preferredOrientation = nan(1, nNeurons);
-            out.OSI = nan(1, nNeurons);
         case 'size'
             out.preferredSize = nan(1, nNeurons);
         case 'tf'
@@ -36,27 +34,24 @@ function out = analyze_parameter_tuning(canon, paramInfo, isResponsive, saveFold
             continue
         end
 
-        tcByParam = group_trials_by_parameter_tc(canon, paramInfo, iNeuron);
+        tcByParam = reshape_tc_by_parameter(canon.tc7, paramDim, iNeuron);
         plot_parameter_timecourses( ...
-            tcByParam, canon.t, paramInfo.values, paramInfo.name, iNeuron, saveFolderTc, opts);
+            tcByParam, canon.t, paramValues, paramName, iNeuron, saveFolderTc, opts);
 
-        ampByParam = group_trials_by_parameter_amp(canon, paramInfo, iNeuron);
+        ampByParam = reshape_amp_by_parameter(canon.amp6, paramDim, iNeuron);
         meanResp = mean(ampByParam, 2, 'omitnan');
         stdResp = std(ampByParam, 0, 2, 'omitnan');
 
         out.meanResponses(:, iNeuron) = meanResp;
         out.stdResponses(:, iNeuron) = stdResp;
 
-        [prefVal, prefIdx] = compute_preferred_value(meanResp, paramInfo.values);
+        [prefVal, prefIdx] = compute_preferred_value(meanResp, paramValues);
         out.preferredValue(iNeuron) = prefVal;
 
-        switch lower(paramInfo.name)
+        switch lower(paramName)
             case 'direction'
                 out.preferredDirection(iNeuron) = prefVal;
-                out.DSI(iNeuron) = compute_direction_selectivity(meanResp, paramInfo.values, prefIdx);
-            case 'orientation'
-                out.preferredOrientation(iNeuron) = prefVal;
-                out.OSI(iNeuron) = compute_orientation_selectivity(meanResp, paramInfo.values);
+                out.DSI(iNeuron) = compute_direction_selectivity(meanResp, paramValues, prefIdx);
             case 'size'
                 out.preferredSize(iNeuron) = prefVal;
             case 'tf'

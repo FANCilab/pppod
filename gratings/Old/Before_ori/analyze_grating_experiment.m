@@ -19,7 +19,28 @@ function results = analyze_grating_experiment(data, targetFolder, opts)
 %   data.sfs         : 1 x nSf vector
 %   data.activeParams: optional cell array, e.g. {'direction','size'}
 %
-% Outputs include derived orientation analysis whenever direction is active.
+% Backward compatibility
+%   The workflow also accepts:
+%   - full canonical arrays [dir size tf sf rep time neuron] and
+%     [dir size tf sf rep neuron]
+%   - legacy squeezed canonical arrays where inactive stimulus dimensions
+%     were removed before repeat/time/neuron.
+%
+% Outputs
+%   results.pVals         : odd-vs-even correlation p-values
+%   results.isResponsive  : logical vector of responsive neurons
+%   results.rVals         : odd-vs-even correlation coefficients
+%   results.direction     : mean tuning outputs for direction
+%   results.size          : mean tuning outputs for size
+%   results.tf            : mean tuning outputs for temporal frequency
+%   results.sf            : mean tuning outputs for spatial frequency
+%
+% Notes
+%   - Internally, data are reshaped to canonical form with dimensions:
+%       tc  = [dir, size, tf, sf, rep, time, neuron]
+%       amp = [dir, size, tf, sf, rep, neuron]
+%   - Blank responses are accepted and saved into results.meta, but are not
+%     used by the requested analyses.
 
     if nargin < 2 || isempty(targetFolder)
         error('You must provide a targetFolder.');
@@ -43,26 +64,28 @@ function results = analyze_grating_experiment(data, targetFolder, opts)
     out = make_output_folders(targetFolder);
     canon = canonicalize_grating_dimensions(data);
 
-    [pVals, isResponsive, rVals] = compute_visual_responsiveness(canon.amp6, out.responsiveness, opts);
+    [pVals, isResponsive, rVals] = compute_visual_responsiveness( ...
+        canon.amp6, out.responsiveness, opts);
 
     results = struct();
     results.pVals = pVals;
     results.isResponsive = isResponsive;
     results.rVals = rVals;
+    results.activeParamNames = canon.activeParams;
 
-    paramInfos = get_active_parameter_info(canon);
-    results.activeParamNames = {paramInfos.name};
-
-    % initialize supported outputs
     results.direction = local_init_param_result(numel(canon.directions), canon.nNeurons, 'direction');
-    results.orientation = local_init_param_result(numel(canon.orientations), canon.nNeurons, 'orientation');
     results.size = local_init_param_result(numel(canon.sizes), canon.nNeurons, 'size');
     results.tf = local_init_param_result(numel(canon.tfs), canon.nNeurons, 'tf');
     results.sf = local_init_param_result(numel(canon.sfs), canon.nNeurons, 'sf');
 
+    paramInfos = get_active_parameter_info(canon);
+
     for iParam = 1:numel(paramInfos)
         paramInfo = paramInfos(iParam);
-        paramResult = analyze_parameter_tuning(canon, paramInfo, isResponsive, out.(paramInfo.timecourseFolderField), opts);
+        paramResult = analyze_parameter_tuning( ...
+            canon, paramInfo.name, paramInfo.values, paramInfo.dim, ...
+            isResponsive, out.(paramInfo.timecourseFolderField), opts);
+
         results.(paramInfo.resultField) = paramResult;
     end
 
@@ -80,23 +103,14 @@ function results = analyze_grating_experiment(data, targetFolder, opts)
         end
     end
 
-    
-
     results.meta = struct();
     results.meta.targetFolder = targetFolder;
     results.meta.alpha = opts.alpha;
     results.meta.saveExt = opts.saveExt;
     results.meta.visible = opts.visible;
     results.meta.activeParams = canon.activeParams;
-    results.meta.analysisParams = {paramInfos.name};
     results.meta.inputFormat = canon.inputFormat;
-    results.meta.directions = canon.directions;
-    results.meta.orientations = canon.orientations;
-    results.meta.sizes = canon.sizes;
-    results.meta.tfs = canon.tfs;
-    results.meta.sfs = canon.sfs;
     results.meta.nDirections = numel(canon.directions);
-    results.meta.nOrientations = numel(canon.orientations);
     results.meta.nSizes = numel(canon.sizes);
     results.meta.nTFs = numel(canon.tfs);
     results.meta.nSFs = numel(canon.sfs);
@@ -107,16 +121,12 @@ function results = analyze_grating_experiment(data, targetFolder, opts)
         'blankTc', ~isempty(canon.blankTc), ...
         'blankAmp', ~isempty(canon.blankAmp));
 
-    distPath = out.summaryDistributions;
-    figDist = plot_results_distributions(results, distPath);
-    if ishghandle(figDist)
-        close(figDist);
-    end
-
     save(fullfile(targetFolder, 'grating_analysis_results.mat'), 'results', '-v7.3');
 end
 
 function out = local_init_param_result(nLevels, nNeurons, paramName)
+% LOCAL_INIT_PARAM_RESULT Initialize results struct for one parameter.
+
     out = struct();
     out.meanResponses = nan(nLevels, nNeurons);
     out.stdResponses = nan(nLevels, nNeurons);
@@ -126,9 +136,6 @@ function out = local_init_param_result(nLevels, nNeurons, paramName)
         case 'direction'
             out.preferredDirection = nan(1, nNeurons);
             out.DSI = nan(1, nNeurons);
-        case 'orientation'
-            out.preferredOrientation = nan(1, nNeurons);
-            out.OSI = nan(1, nNeurons);
         case 'size'
             out.preferredSize = nan(1, nNeurons);
         case 'tf'

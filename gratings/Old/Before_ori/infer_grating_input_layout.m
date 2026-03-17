@@ -71,17 +71,17 @@ function info = infer_grating_input_layout(data)
     info.nStim = nStim;
 
     if flatOK
-        info.format = 'flattened_stimulus';
+        info.format = 'flattened-stim';
         info.nRep = flatNRepAmp;
         info.nTime = flatNTimeTc;
         info.nNeurons = flatNNeuronAmp;
     elseif fullOK
-        info.format = 'full_canonical';
+        info.format = 'full-canonical';
         info.nRep = fullNRepAmp;
         info.nTime = fullNTimeTc;
         info.nNeurons = fullNNeuronAmp;
     elseif legacyOK
-        info.format = 'legacy_squeezed';
+        info.format = 'legacy-squeezed';
         info.nRep = legacyNRepAmp;
         info.nTime = legacyNTimeTc;
         info.nNeurons = legacyNNeuronAmp;

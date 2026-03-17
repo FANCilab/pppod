@@ -15,21 +15,33 @@ i = 0;
 % db(i).root_storage   ='Z:\Data\2P';
 
 
+% i = i+1;
+% db(i).subject    = 'NM023'; % animal name
+% db(i).date          = '20260226'; % date of the recording
+% db(i).exp         = [1]; % all the experiments in the recording
+% db(i).expID         = 1; % the experiment you want to compute pixel map of
+% db(i).n_planes       = 1;
+% db(i).fun_channel   = 1;
+% db(i).n_channels    = 1;
+% db(i).s2p_version   = 'python';
+% db(i).root_storage   ='Z:\Data\2P';
+% db(i).stim_type  = 'gratings';
+
 i = i+1;
 db(i).subject    = 'NM023'; % animal name
-db(i).date          = '20260226'; % date of the recording
-db(i).exp         = [1]; % all the experiments in the recording
+db(i).date          = '20260209'; % date of the recording
+db(i).exp         = [1 2]; % all the experiments in the recording
 db(i).expID         = 1; % the experiment you want to compute pixel map of
-db(i).n_planes       = 1;
+db(i).n_planes       = 2;
 db(i).fun_channel   = 1;
 db(i).n_channels    = 1;
 db(i).s2p_version   = 'python';
-db(i).root_storage   ='Z:\Data\2P';
+db(i).root_storage   ='D:\Data\suite2p';
 db(i).stim_type  = 'gratings';
 
 %% Set path to relevant code
 if ispc
-    code_repo = 'C:\Users\User\Documents\Code\retinotopy';
+    code_repo = 'C:\Users\User\Documents\Code\pppod';
 else
     % code_repo = 'D:\OneDrive - Fondazione Istituto Italiano Tecnologia\Documents\Code\retinotopy\';
 end
