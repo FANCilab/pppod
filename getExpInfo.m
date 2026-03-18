@@ -90,6 +90,7 @@ if get_2p_info
 
         info.nPlanes = str2double(values{7});
         info.zs = str2double(values{8});
+        info.zs = sscanf(values{8}(2:end-1), '%f');
 
         if info.nPlanes ~=numel(info.zs)
             info.nPlanes = numel(info.zs);

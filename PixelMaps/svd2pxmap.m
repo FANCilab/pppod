@@ -23,13 +23,20 @@ info = getExpInfo(db.subject, db.date, db.exp(db.expID));
 
 switch db.s2p_version
     case 'python'
-targetPlane = targetPlane-1;
+
+        if exist(info.folder2p, 'dir') % check first if analysis is local
+            s2p_folder = fullfile(info.folder2p,sprintf('plane%d', targetPlane-1));
+            s2p_file = sprintf('%s/Fall.mat', s2p_folder);
+            svd_file = sprintf('%s/SVD_%s_%s_plane%d.mat', s2p_folder, ...
+                db.subject, db.date, targetPlane-1);
+
+        else
+
 s2p_folder = fullfile(info.folder2praw,sprintf('plane%d', targetPlane));
-
 s2p_file = sprintf('%s/Fall.mat', s2p_folder);
-
 svd_file = sprintf('%s/SVD_%s_%s_plane%d.mat', s2p_folder, ...
     db.subject, db.date, targetPlane);
+        end
 
     case 'matlab'
 
@@ -76,13 +83,14 @@ switch stim_type
                 nFrames = svd.ops.Nframes(db.expID);
 
         end
-        planeFrames = targetPlane:db.n_planes:(nFrames*info.nPlanes); % check if it works for multiplane recs
+
+        planeFrames = targetPlane:info.nPlanes:(nFrames*info.nPlanes); % check if it works for multiplane recs
 
         %%
 
         event = bonsai.load_events(db);
 
-        frameTimes = event.frame.on;
+        frameTimes = event.frame.on(planeFrames);
 
         frameRate = (1/mean(diff(frameTimes)));
 
@@ -90,20 +98,14 @@ switch stim_type
 
         stimSequence = event.grating.stimSequence;
 
-        stimMatrix = event.grating.stimMatrix(event.grating.stimIdx, targetplane:info.nPlanes:end);
-        stimMatrix_blank = event.grating.stimMatrix(event.grating.blankStimIdx, targetplane:info.nPlanes:end);
+        stimMatrix = event.grating.stimMatrix(event.grating.stimIdx, planeFrames);
+        stimMatrix_blank = event.grating.stimMatrix(event.grating.blankStimIdx, planeFrames);
 
-
-        p.nDir = sum(event.grating.is_stim);
-        p.dirs = 0:30:330;
-
-      
-        dirs = p.dirs; %dirs = -dirs;
+    
+        dirs = event.grating.uniquePars.direction(1:end-1)'; % change
         dirs = deg2rad(dirs);
         oris = dirs;
-        % oris = dirs - pi/2;
         oris(oris >= pi) = oris(oris >=pi) -pi;
-        % oris(oris < 0) = oris(oris <0) +pi;
         oris = oris -pi/2;
         oris = oris*2;
 

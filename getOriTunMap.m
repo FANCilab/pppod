@@ -1,7 +1,7 @@
 clear;
 
 %% database of the recording
-% i = 0;
+i = 0;
 % 
 % i = i+1;
 % db(i).mouse_name    = 'NM023'; % animal name
@@ -15,14 +15,25 @@ clear;
 % db(i).root_storage   ='Z:\Data\2P';
 % db(i).expType  = 'gratings';
 
-i = 0;
+% 
+% i = i+1;
+% db(i).subject    = 'NM023'; % animal name
+% db(i).date          = '20260226'; % date of the recording
+% db(i).exp         = [1]; % all the experiments in the recording
+% db(i).expID         = 1; % the experiment you want to compute pixel map of
+% db(i).n_planes       = 1;
+% db(i).fun_channel   = 1;
+% db(i).n_channels    = 1;
+% db(i).s2p_version   = 'python';
+% db(i).root_storage   ='Z:\Data\2P';
+% db(i).stim_type  = 'gratings';
 
 i = i+1;
 db(i).subject    = 'NM023'; % animal name
-db(i).date          = '20260226'; % date of the recording
+db(i).date          = '20260209'; % date of the recording
 db(i).exp         = [1]; % all the experiments in the recording
 db(i).expID         = 1; % the experiment you want to compute pixel map of
-db(i).n_planes       = 1;
+db(i).n_planes       = 2;
 db(i).fun_channel   = 1;
 db(i).n_channels    = 1;
 db(i).s2p_version   = 'python';
@@ -32,7 +43,7 @@ db(i).stim_type  = 'gratings';
 %% Set path to relevant code
 
 if ispc
-    code_repo = 'C:\Users\User\Documents\Code';
+    code_repo = 'C:\Users\User\Documents\Code\pppod';
 else
     % code_repo = 'D:\OneDrive - Fondazione Istituto Italiano Tecnologia\Documents\Code\retinotopy\';
 end
@@ -41,7 +52,7 @@ cd(code_repo);
 addpath(genpath(code_repo));
 addpath(genpath('C:\Users\User\Documents\Code\Suite2P_Matlab'))
 addpath('C:\Users\User\Documents\Code\FedBox');
-addpath('C:\Users\User\Documents\Code\FedBox\rastermap_matlab');
+% addpath('C:\Users\User\Documents\Code\FedBox\rastermap_matlab');
 
 
 %% Use SVD compressed recording to make pixel maps

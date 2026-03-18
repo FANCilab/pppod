@@ -42,8 +42,8 @@ function results = analyze_grating_experiment(data, targetFolder, opts)
     validate_grating_inputs(data);
     out = make_output_folders(targetFolder);
     canon = canonicalize_grating_dimensions(data);
-
     [pVals, isResponsive, rVals] = compute_visual_responsiveness(canon.amp6, out.responsiveness, opts);
+    canon.isResponsive = isResponsive;
 
     results = struct();
     results.pVals = pVals;
@@ -59,6 +59,30 @@ function results = analyze_grating_experiment(data, targetFolder, opts)
     results.size = local_init_param_result(numel(canon.sizes), canon.nNeurons, 'size');
     results.tf = local_init_param_result(numel(canon.tfs), canon.nNeurons, 'tf');
     results.sf = local_init_param_result(numel(canon.sfs), canon.nNeurons, 'sf');
+    
+    % best 1D tuning for each active par
+    results.oneDTuning = struct();
+    for iPar = 1:numel(canon.activeParams)
+        pName = canon.activeParams{iPar};
+        results.oneDTuning.(pName) = compute_best_condition_1d_tuning(canon, pName, opts, targetFolder);
+    end
+
+    % Pairwise response analyses for all active-parameter pairs
+    results.pairwise = struct();
+    if isfield(canon, 'activeParams') && numel(canon.activeParams) >= 2
+        for iPar = 1:numel(canon.activeParams)-1
+            for jPar = iPar+1:numel(canon.activeParams)
+                p1 = canon.activeParams{iPar};
+                p2 = canon.activeParams{jPar};
+
+                % pairFolder = fullfile(targetFolder, [p1 '_vs_' p2]);
+                pairMat = compute_plot_pairwise_responses(canon, p1, p2, targetFolder, opts);
+
+                results.pairwise.([p1 '_vs_' p2]) = pairMat;
+                results.([p1 '_vs_' p2]) = pairMat;
+            end
+        end
+    end
 
     for iParam = 1:numel(paramInfos)
         paramInfo = paramInfos(iParam);
@@ -81,7 +105,6 @@ function results = analyze_grating_experiment(data, targetFolder, opts)
     end
 
     
-
     results.meta = struct();
     results.meta.targetFolder = targetFolder;
     results.meta.alpha = opts.alpha;

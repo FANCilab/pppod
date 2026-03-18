@@ -32,6 +32,18 @@ switch db.s2p_version
             ops.save_path = s2p_folder;
             ops.iplane = iPlane-1;
 
+            if strcmp(ops.version, '1.0.0.1')
+            Lx = ops.Lx;
+            Ly = ops.Ly;
+            ops.Lx = Ly;
+            ops.Ly = Lx;
+
+            xrange = ops.xrange;
+            yrange = ops.yrange;
+            ops.xrange = yrange;
+            ops.yrange = xrange;
+                
+            end
             mov2svd_py(ops);
 
         end
