@@ -90,19 +90,19 @@ function results = analyze_grating_experiment(data, targetFolder, opts)
         results.(paramInfo.resultField) = paramResult;
     end
 
-    for iNeuron = 1:canon.nNeurons
-        if ~isResponsive(iNeuron)
-            continue
-        end
-
-        if ~isempty(paramInfos)
-            plot_parameter_tuning(canon, paramInfos, iNeuron, out.combinedTuning, opts);
-        end
-
-        if numel(paramInfos) >= 2
-            plot_pairwise_response_matrices(canon, paramInfos, iNeuron, out.pairwiseMatrices, opts);
-        end
-    end
+    % for iNeuron = 1:canon.nNeurons
+    %     if ~isResponsive(iNeuron)
+    %         continue
+    %     end
+    % 
+    %     if ~isempty(paramInfos)
+    %         plot_parameter_tuning(canon, paramInfos, iNeuron, out.combinedTuning, opts);
+    %     end
+    % 
+    %     if numel(paramInfos) >= 2
+    %         plot_pairwise_response_matrices(canon, paramInfos, iNeuron, out.pairwiseMatrices, opts);
+    %     end
+    % end
 
     
     results.meta = struct();

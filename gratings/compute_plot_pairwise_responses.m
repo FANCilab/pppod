@@ -80,12 +80,13 @@ for iNeuron = 1:nNeurons
     colorbar(axAmp);
 
     local_save_figure(figAmp, fullfile(outFolder, ...
-        sprintf('neuron_%04d_%s_matrix.%s', iNeuron, pairName, opts.saveExt)));
+        sprintf('neuron_%04d_%s_matrix.%s', iNeuron, pairName, opts.saveExt)), opts);
     close(figAmp);
 
     tcCell = local_collect_pairwise_timecourses(canon.tc7, iNeuron, dim1, dim2, order1, order2);
 
     figTc = local_make_figure(opts.visible);
+
     yMin = inf;
     yMax = -inf;
     for i2 = 1:n2
@@ -130,6 +131,8 @@ for iNeuron = 1:nNeurons
             end
 
             title(ax, sprintf('%g / %g', values1Plot(i1), values2Plot(i2)));
+            box(ax, 'off');
+
         end
     end
 
@@ -137,7 +140,7 @@ for iNeuron = 1:nNeurons
         'Interpreter', 'none');
 
     local_save_figure(figTc, fullfile(outFolder, ...
-        sprintf('neuron_%04d_%s_timecourses.%s', iNeuron, pairName, opts.saveExt)));
+        sprintf('neuron_%04d_%s_timecourses.%s', iNeuron, pairName, opts.saveExt)), opts);
     close(figTc);
 end
 end
@@ -216,14 +219,19 @@ end
 fig = figure('Visible', visibleSetting, 'Color', 'w');
 end
 
-function local_save_figure(fig, filePath)
+function local_save_figure(fig, filePath, opts)
 [folderPath, ~, ~] = fileparts(filePath);
 if ~exist(folderPath, 'dir')
     mkdir(folderPath);
 end
 
 try
-    exportgraphics(fig, filePath, 'Resolution', 150);
+    if strcmp(opts.saveExt, 'svg') || strcmp(opts.saveExt, 'pdf')
+        exportgraphics(fig, filePath, 'ContentType','vector');
+    else
+        exportgraphics(fig, filePath, 'Resolution', 150);
+
+    end
 catch
     saveas(fig, filePath);
 end

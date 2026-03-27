@@ -3,13 +3,20 @@
 clear;
 clc;
 %% Set path to relevant code
-
+code_repo = 'C:\Users\User\Documents\Code\pppod';
 cd(code_repo);
 addpath(genpath(code_repo));
-addpath('C:\Users\User\Documents\Code\pppod');
 
 %% database of the recordings, one entry per zstack
 i = 0;
+
+i = i+1;
+db(i).mouse_name    = 'HS028'; % animal name
+db(i).date          = '20260211'; % date of the recording
+db(i).exp_n         = [3]; % all the experiments in the recording
+db(i).expID         = 1; % the experiment you want to compute pixel map of
+db(i).regto = 1;
+
 
 i = i+1;
 db(i).mouse_name    = 'HS034'; % animal name
@@ -49,7 +56,7 @@ options.doBidi = 0;
 % tiffs with the G and R zstack are going to be saved in
 % info.folderProcessed. check that it points to a directory on your PC!
 
-for iDb = 3%:numel(db)
+for iDb = 1%:numel(db)
     
     %which channel to register to
     options.registrationChannel = db(iDb).regto;

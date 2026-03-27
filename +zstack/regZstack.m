@@ -216,7 +216,7 @@ if nCh ==1
     
     zStack{iCh} = uint16(mat2gray(zStack{iCh})*(2^16-1));
     
-   saveastiff(zStack{iCh}, fullfile(info.folderZstack , [info.expRef, '_zStackMean.tif']));
+   tiff.saveastiff(zStack{iCh}, fullfile(info.folderZstack , [info.expRef, '_zStackMean.tif']));
 else
     
 %     [zStack{2}, zStack{1}] = zstack.registerStackColumn(zStack{2}, zStack{1}, regCh);
@@ -227,9 +227,9 @@ else
         zStack{iCh} = uint16(mat2gray(zStack{iCh})*(2^16-1));
         switch iCh
             case 1
-        saveastiff(zStack{iCh}, fullfile(info.folderZstack , [info.expRef, '_zStackMean_G.tif']));
+        tiff.saveastiff(zStack{iCh}, fullfile(info.folderZstack , [info.expRef, '_zStackMean_G.tif']));
             case 2
-       saveastiff(zStack{iCh}, fullfile(info.folderZstack , [info.expRef, '_zStackMean_R.tif']));
+       tiff.saveastiff(zStack{iCh}, fullfile(info.folderZstack , [info.expRef, '_zStackMean_R.tif']));
 
         end
     end

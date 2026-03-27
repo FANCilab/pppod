@@ -22,7 +22,9 @@ info.date=expDate;
 info.exp=exp;
 info.expRef= sprintf('%s_%s_%d', info.subject,info.date, info.exp);
 
-dataFolders = { 'D:\Data\suite2p\','Z:\Data\2P','\\10.233.25.135\Data\2P'}; %edit this so that the first one is your local data folder
+info.localData = 'D:\Data\suite2p\'; %edit this so that the first one is your local data folder
+
+dataFolders = {info.localData ,'Z:\Data\2P','\\10.233.25.135\Data\2P'}; 
 for k = 1:length(dataFolders)
     folder = fullfile(dataFolders{k}, info.subject, info.date, num2str(info.exp));
     if exist(folder, 'dir') ~= 0

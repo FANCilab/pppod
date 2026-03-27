@@ -36,15 +36,10 @@ function plot_pairwise_response_matrices(canon, paramInfos, iNeuron, saveFolder,
 
     figWidth = max(320 * nCols, 500);
     figHeight = max(280 * nRows, 320);
-    prevVisible = get(groot, 'DefaultFigureVisible');
-    cleanupObj = onCleanup(@() set(groot, 'DefaultFigureVisible', prevVisible)); %#ok<NASGU>
-    if isfield(opts, 'visible') && strcmpi(opts.visible, 'off')
-        set(groot, 'DefaultFigureVisible', 'off');
-    end
 
-    fig = figure('Visible', opts.visible, 'Color', 'w', ...
-        'Position', [100 100 figWidth figHeight]);
-    set(fig, 'Visible', opts.visible);
+     fig = local_make_figure(opts.visible);
+
+    set(fig, 'Position', [100 100 figWidth figHeight]);
     colormap(parula);
 
     for iPair = 1:nPairs
@@ -103,4 +98,11 @@ end
 
 function labels = local_tick_labels(values)
     labels = arrayfun(@(x) sprintf('%.3g', x), values, 'UniformOutput', false);
+end
+
+function fig = local_make_figure(visibleSetting)
+    if nargin < 1 || isempty(visibleSetting)
+        visibleSetting = 'off';
+    end
+    fig = figure('Visible', visibleSetting, 'Color', 'w');
 end

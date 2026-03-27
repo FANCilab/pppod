@@ -37,8 +37,8 @@ function out = analyze_parameter_tuning(canon, paramInfo, isResponsive, saveFold
         end
 
         tcByParam = group_trials_by_parameter_tc(canon, paramInfo, iNeuron);
-        plot_parameter_timecourses( ...
-            tcByParam, canon.t, paramInfo.values, paramInfo.name, iNeuron, saveFolderTc, opts);
+        % plot_parameter_timecourses( ...
+        %     tcByParam, canon.t, paramInfo.values, paramInfo.name, iNeuron, saveFolderTc, opts);
 
         ampByParam = group_trials_by_parameter_amp(canon, paramInfo, iNeuron);
         meanResp = mean(ampByParam, 2, 'omitnan');

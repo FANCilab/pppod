@@ -78,7 +78,7 @@ if ~isempty(distInfos)
 
         xlabel(ax, distInfos(iPlot).xLabel, 'Interpreter', 'none');
         ylabel(ax, 'Density');
-        ylim([0 0.6])
+        ylim([0 0.8])
         title(ax, distInfos(iPlot).title, 'Interpreter', 'none');
         box(ax, 'off');
 
@@ -90,7 +90,7 @@ if ~isempty(distInfos)
     sgtitle(figDistributions, 'Population summary distributions');
 
     if ~isempty(saveFolder)
-        local_safe_export(figDistributions, fullfile(saveFolder, ['population_summary_distributions.' opts.saveExt]));
+        local_safe_export(figDistributions, fullfile(saveFolder, ['population_summary_distributions.' opts.saveExt]), opts);
     end
 end
 
@@ -148,7 +148,7 @@ if ~isempty(tuningInfos)
     sgtitle(figTunings, 'Population tuning curves');
 
     if ~isempty(saveFolder)
-        local_safe_export(figTunings, fullfile(saveFolder, ['population_tuning_curves.' opts.saveExt]));
+        local_safe_export(figTunings, fullfile(saveFolder, ['population_tuning_curves.' opts.saveExt]), opts);
     end
 end
 
@@ -434,7 +434,7 @@ fig = figure('Visible', visibleState);
 
 end
 
-function local_safe_export(fig, filePath)
+function local_safe_export(fig, filePath, opts)
 
 [folderPath, ~, ~] = fileparts(filePath);
 if ~isempty(folderPath) && ~exist(folderPath, 'dir')
@@ -442,7 +442,12 @@ if ~isempty(folderPath) && ~exist(folderPath, 'dir')
 end
 
 try
-    exportgraphics(fig, filePath, 'Resolution', 150);
+    if strcmp(opts.saveExt, 'svg') || strcmp(opts.saveExt, 'pdf')
+    exportgraphics(fig, filePath, 'Resolution', 150, 'ContentType', 'vector');
+    else
+            exportgraphics(fig, filePath, 'Resolution', 150);
+
+    end
 catch
     saveas(fig, filePath);
 end

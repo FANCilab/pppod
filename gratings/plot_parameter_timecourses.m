@@ -14,15 +14,9 @@ function plot_parameter_timecourses(tcByParam, t, paramValues, paramName, iNeuro
     tcByParam = tcByParam(sortIdx, :, :);
 
     figWidth = max(320 * nLevels, 500);
-    prevVisible = get(groot, 'DefaultFigureVisible');
-    cleanupObj = onCleanup(@() set(groot, 'DefaultFigureVisible', prevVisible)); %#ok<NASGU>
-    if isfield(opts, 'visible') && strcmpi(opts.visible, 'off')
-        set(groot, 'DefaultFigureVisible', 'off');
-    end
 
-    fig = figure('Visible', opts.visible, 'Color', 'w', ...
-        'Position', [100 100 figWidth 300]);
-    set(fig, 'Visible', opts.visible);
+    fig = local_make_figure(opts.visible);
+    set(fig, 'Position', [100 100 figWidth 300]);
 
     yLimits = local_compute_y_limits(tcByParam);
     axesHandles = gobjects(1, nLevels);
@@ -89,4 +83,12 @@ function yLimits = local_compute_y_limits(tcByParam)
         pad = 0.05 * (yMax - yMin);
         yLimits = [yMin - pad, yMax + pad];
     end
+end
+
+function fig = local_make_figure(visibleSetting)
+    if nargin < 1 || isempty(visibleSetting)
+        visibleSetting = 'off';
+    end
+    fig = figure('Visible', visibleSetting, 'Color', 'w');
+        
 end

@@ -254,22 +254,38 @@ end
 
 function local_plot_tuning(paramName, values, ampByValue, iNeuron, folder, opts)
     fig = local_make_figure(opts.visible);
-    ax = axes(fig); %#ok<LAXES>
-    hold(ax, 'on');
+    ax1 = subplot(2,1,1);
+    hold(ax1, 'on');
 
     nValues = numel(values);
     for iValue = 1:nValues
         y = ampByValue(iValue, :);
         x = repmat(values(iValue), size(y));
-        plot(ax, x, y, 'o', 'MarkerFaceColor', 'none');
+        plot(ax1, x, y, 'o', 'Color', [0.7 0.7 0.7], 'MarkerFaceColor', 'none');
     end
-    plot(ax, values, mean(ampByValue, 2, 'omitnan'), '-', 'LineWidth', opts.lineWidthThick);
+    plot(ax1, values, mean(ampByValue, 2, 'omitnan'), '-', 'LineWidth', opts.lineWidthThick, 'Color', 'k');
 
-    xlabel(ax, local_pretty_label(paramName));
-    ylabel(ax, 'Response amplitude');
-    title(ax, sprintf('Neuron %d - best-condition %s tuning', iNeuron, local_pretty_label(paramName)));
-    local_set_x_axis(ax, values);
-    grid(ax, 'on');
+    xlabel(ax1, local_pretty_label(paramName));
+    ylabel(ax1, 'Response amplitude');
+    title(ax1, sprintf('Neuron %d - best-condition %s tuning', iNeuron, local_pretty_label(paramName)));
+    local_set_x_axis(ax1, values);
+    % grid(ax, 'on');
+    set(ax1, 'Box', 'off', 'TickDir', 'out')
+
+     ax2 = subplot(2,1,2);
+    hold(ax2, 'on');
+    plot(ax2, values, mean(ampByValue, 2, 'omitnan'), '-', 'LineWidth', opts.lineWidthThick, 'Color', 'k');
+    errorbar(ax2, values, mean(ampByValue, 2, 'omitnan'), std(ampByValue, [],2, 'omitnan'), 'k-o', ...
+        'LineWidth', 1.5, ...
+        'MarkerFaceColor', 'k', ...
+        'MarkerSize', 6);
+    xlabel(ax2, local_pretty_label(paramName));
+    ylabel(ax2, 'Response amplitude');
+    title(ax2, sprintf('Neuron %d - best-condition %s tuning', iNeuron, local_pretty_label(paramName)));
+    % forlims = cat(1, mean(ampByValue, 2, 'omitnan')+std(ampByValue, [],2, 'omitnan'), mean(ampByValue, 2, 'omitnan')-std(ampByValue,[], 2, 'omitnan'));
+    local_set_x_axis(ax2, values);
+    % grid(ax, 'on');
+    set(ax2, 'Box', 'off', 'TickDir', 'out')
 
     local_save_figure(fig, fullfile(folder, sprintf('neuron_%04d_best_condition_tuning.%s', iNeuron, opts.saveExt)), opts);
 end
@@ -277,6 +293,8 @@ end
 function local_plot_timecourses(paramName, values, tcByValue, t, iNeuron, folder, opts)
     nValues = numel(values);
     fig = local_make_figure(opts.visible);
+        figWidth = max(320 * nValues, 500);
+    set(fig, 'Position',  [100 100 figWidth 300]);
     tl = tiledlayout(fig, 1, nValues, 'Padding', 'compact', 'TileSpacing', 'compact');
 
     yMin = inf;
@@ -302,14 +320,16 @@ function local_plot_timecourses(paramName, values, tcByValue, t, iNeuron, folder
         if isvector(trials)
             trials = trials(:).';
         end
-        plot(ax, local_row(t), trials.', 'LineWidth', opts.lineWidthThin);
-        plot(ax, local_row(t), mean(trials, 1, 'omitnan'), 'LineWidth', opts.lineWidthThick);
+        plot(ax, local_row(t), trials.', 'LineWidth', opts.lineWidthThin, 'Color', [0.7 0.7 0.7]);
+        plot(ax, local_row(t), mean(trials, 1, 'omitnan'), 'LineWidth', opts.lineWidthThick, 'Color', 'k');
         xline(ax, 0, '--');
+        xline(ax, 2, '--');
         title(ax, sprintf('%.4g', values(iValue)));
         xlabel(ax, 'Time from stimulus onset');
         ylabel(ax, 'Response');
         ylim(ax, [yMin yMax]);
-        grid(ax, 'on');
+        % grid(ax, 'on');
+        set(ax, 'Box', 'off', 'TickDir', 'out')
     end
 
     sgtitle(tl, sprintf('Neuron %d - best-condition %s timecourses', iNeuron, local_pretty_label(paramName)));
@@ -337,7 +357,12 @@ function local_save_figure(fig, filePath, opts)
     [folder, ~, ~] = fileparts(filePath);
     local_mkdir_if_needed(folder);
     try
-        exportgraphics(fig, filePath, 'Resolution', 150);
+        if strcmp(opts.saveExt, 'svg') || strcmp(opts.saveExt, 'pdf')
+        exportgraphics(fig, filePath,'ContentType','vector');
+        else
+            exportgraphics(fig, filePath, 'Resolution', 150);
+
+        end
     catch
         saveas(fig, filePath);
     end

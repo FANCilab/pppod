@@ -83,11 +83,11 @@ else
 
             case 1
                 rCh1= uint16(mat2gray(rCh1)*(2^16-1));
-                saveastiff(rCh1, fullfile(info.folderZstack , [info.expRef, '_zStackMean_G_reg.tif']));
+                tiff.saveastiff(rCh1, fullfile(info.folderZstack , [info.expRef, '_zStackMean_G_reg.tif']));
             case 2
                 rCh2= uint16(mat2gray(rCh2)*(2^16-1));
 
-                saveastiff(rCh2, fullfile(info.folderZstack , [info.expRef, '_zStackMean_R_reg.tif']));
+                tiff.saveastiff(rCh2, fullfile(info.folderZstack , [info.expRef, '_zStackMean_R_reg.tif']));
 
         end
     end
