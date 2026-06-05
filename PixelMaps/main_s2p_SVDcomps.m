@@ -39,6 +39,7 @@ db(i).s2p_version   = 'python';
 db(i).root_storage   ='D:\Data\suite2p';
 db(i).stim_type  = 'gratings';
 
+
 %% Set path to relevant code
 if ispc
     code_repo = 'C:\Users\User\Documents\Code\pppod';

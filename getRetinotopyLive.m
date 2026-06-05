@@ -1,16 +1,17 @@
 clear;
 
 %% set paths
-addpath(genpath('D:\OneDrive - Fondazione Istituto Italiano Tecnologia\Documents\Code\retinotopy'));
-addpath(genpath('D:\OneDrive - Fondazione Istituto Italiano Tecnologia\Documents\Code\FedBox'));
+% addpath(genpath('D:\OneDrive - Fondazione Istituto Italiano Tecnologia\Documents\Code\retinotopy'));
+% addpath(genpath('D:\OneDrive - Fondazione Istituto Italiano Tecnologia\Documents\Code\FedBox'));
+addpath(genpath('C:\Users\User\Documents\Code\pppod'));
 
 addpath(genpath('Z:\Data\2P\'));
 
 ops.root_storage = 'Z:\Data\2P';
 
 ops.mouse_name = 'NM023';
-ops.date = '20251224';
-ops.exp_n = 4;
+ops.date = '20260428';
+ops.exp_n = 1;
 
 ops.n_channels = 1;
 ops.fun_channel = 1;

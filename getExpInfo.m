@@ -94,9 +94,9 @@ if get_2p_info
         info.zs = str2double(values{8});
         info.zs = sscanf(values{8}(2:end-1), '%f');
 
-        if info.nPlanes ~=numel(info.zs)
-            info.nPlanes = numel(info.zs);
-        end
+        % if info.nPlanes ~=numel(info.zs)
+        %     info.nPlanes = numel(info.zs);
+        % end
 
     catch
         warning('NO IMAGING DATA FOUND, returning basic exp info')
