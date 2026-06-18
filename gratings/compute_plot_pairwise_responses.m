@@ -34,6 +34,9 @@ end
 if ~isfield(opts, 'saveExt') || isempty(opts.saveExt)
     opts.saveExt = 'png';
 end
+if ~isfield(opts, 'doPlot') || isempty(opts.doPlot)
+    opts.doPlot = false;
+end
 
 paramName1 = char(string(paramName1));
 paramName2 = char(string(paramName2));
@@ -68,80 +71,83 @@ for iNeuron = 1:nNeurons
     if ~canon.isResponsive(iNeuron)
         continue
     end
-    figAmp = local_make_figure(opts.visible);
-    axAmp = axes('Parent', figAmp);
-    imagesc(axAmp, values1Plot, values2Plot, ampMatPlot.');
-    axis(axAmp, 'tight');
-    set(axAmp, 'YDir', 'normal');
-    xlabel(axAmp, label1, 'Interpreter', 'none');
-    ylabel(axAmp, label2, 'Interpreter', 'none');
-    title(axAmp, sprintf('Neuron %d: %s vs %s mean response', iNeuron, label1, label2), ...
-        'Interpreter', 'none');
-    colorbar(axAmp);
 
-    local_save_figure(figAmp, fullfile(outFolder, ...
-        sprintf('neuron_%04d_%s_matrix.%s', iNeuron, pairName, opts.saveExt)), opts);
-    close(figAmp);
+    if opts.doPlot
+        figAmp = local_make_figure(opts.visible);
+        axAmp = axes('Parent', figAmp);
+        imagesc(axAmp, values1Plot, values2Plot, ampMatPlot.');
+        axis(axAmp, 'tight');
+        set(axAmp, 'YDir', 'normal');
+        xlabel(axAmp, label1, 'Interpreter', 'none');
+        ylabel(axAmp, label2, 'Interpreter', 'none');
+        title(axAmp, sprintf('Neuron %d: %s vs %s mean response', iNeuron, label1, label2), ...
+            'Interpreter', 'none');
+        colorbar(axAmp);
 
-    tcCell = local_collect_pairwise_timecourses(canon.tc7, iNeuron, dim1, dim2, order1, order2);
+        local_save_figure(figAmp, fullfile(outFolder, ...
+            sprintf('neuron_%04d_%s_matrix.%s', iNeuron, pairName, opts.saveExt)), opts);
+        close(figAmp);
 
-    figTc = local_make_figure(opts.visible);
+        tcCell = local_collect_pairwise_timecourses(canon.tc7, iNeuron, dim1, dim2, order1, order2);
 
-    yMin = inf;
-    yMax = -inf;
-    for i2 = 1:n2
-        for i1 = 1:n1
-            trials = tcCell{i2, i1};
-            if ~isempty(trials)
-                yMin = min(yMin, min(trials(:)));
-                yMax = max(yMax, max(trials(:)));
+        figTc = local_make_figure(opts.visible);
+
+        yMin = inf;
+        yMax = -inf;
+        for i2 = 1:n2
+            for i1 = 1:n1
+                trials = tcCell{i2, i1};
+                if ~isempty(trials)
+                    yMin = min(yMin, min(trials(:)));
+                    yMax = max(yMax, max(trials(:)));
+                end
             end
         end
-    end
-    if ~isfinite(yMin) || ~isfinite(yMax) || yMin == yMax
-        yMin = -1;
-        yMax = 1;
-    end
-
-    for i2 = 1:n2
-        for i1 = 1:n1
-            ax = subplot(n2, n1, (i2-1)*n1 + i1, 'Parent', figTc);
-            trials = tcCell{i2, i1};
-
-            if ~isempty(trials)
-                plot(ax, canon.t(:), trials.', 'LineWidth', 0.5, 'Color',[0.7 0.7 0.7]);
-                hold(ax, 'on');
-                meanTrace = mean(trials, 1, 'omitnan');
-                plot(ax, canon.t(:), meanTrace(:), 'LineWidth', 2.0, 'Color','k');
-            end
-
-            xline(ax, 0, '--');
-            ylim(ax, [yMin, yMax]);
-
-            if i2 == n2
-                xlabel(ax, sprintf('%s = %g', label1, values1Plot(i1)), 'Interpreter', 'none');
-            else
-                set(ax, 'XTickLabel', []);
-            end
-
-            if i1 == 1
-                ylabel(ax, sprintf('%s = %g', label2, values2Plot(i2)), 'Interpreter', 'none');
-            else
-                set(ax, 'YTickLabel', []);
-            end
-
-            title(ax, sprintf('%g / %g', values1Plot(i1), values2Plot(i2)));
-            box(ax, 'off');
-
+        if ~isfinite(yMin) || ~isfinite(yMax) || yMin == yMax
+            yMin = -1;
+            yMax = 1;
         end
+
+        for i2 = 1:n2
+            for i1 = 1:n1
+                ax = subplot(n2, n1, (i2-1)*n1 + i1, 'Parent', figTc);
+                trials = tcCell{i2, i1};
+
+                if ~isempty(trials)
+                    plot(ax, canon.t(:), trials.', 'LineWidth', 0.5, 'Color',[0.7 0.7 0.7]);
+                    hold(ax, 'on');
+                    meanTrace = mean(trials, 1, 'omitnan');
+                    plot(ax, canon.t(:), meanTrace(:), 'LineWidth', 2.0, 'Color','k');
+                end
+
+                xline(ax, 0, '--');
+                ylim(ax, [yMin, yMax]);
+
+                if i2 == n2
+                    xlabel(ax, sprintf('%s = %g', label1, values1Plot(i1)), 'Interpreter', 'none');
+                else
+                    set(ax, 'XTickLabel', []);
+                end
+
+                if i1 == 1
+                    ylabel(ax, sprintf('%s = %g', label2, values2Plot(i2)), 'Interpreter', 'none');
+                else
+                    set(ax, 'YTickLabel', []);
+                end
+
+                title(ax, sprintf('%g / %g', values1Plot(i1), values2Plot(i2)));
+                box(ax, 'off');
+
+            end
+        end
+
+        sgtitle(figTc, sprintf('Neuron %d: %s vs %s time courses', iNeuron, label1, label2), ...
+            'Interpreter', 'none');
+
+        local_save_figure(figTc, fullfile(outFolder, ...
+            sprintf('neuron_%04d_%s_timecourses.%s', iNeuron, pairName, opts.saveExt)), opts);
+        close(figTc);
     end
-
-    sgtitle(figTc, sprintf('Neuron %d: %s vs %s time courses', iNeuron, label1, label2), ...
-        'Interpreter', 'none');
-
-    local_save_figure(figTc, fullfile(outFolder, ...
-        sprintf('neuron_%04d_%s_timecourses.%s', iNeuron, pairName, opts.saveExt)), opts);
-    close(figTc);
 end
 end
 

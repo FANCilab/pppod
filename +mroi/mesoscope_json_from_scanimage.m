@@ -1,9 +1,9 @@
 clear;
 
 % set to folder with tiffs
-root = 'Z:\Data\2P\NM023\20260226\1';
+root = '\\10.233.25.135\FANCiNAS1\Data\2P\HS037\20260603\1';
 % root = 'Z:\Data\2P\HS028\20260211\2';
-root = 'Z:\Data\2P\NM023\20260209\1';
+% root = 'Z:\Data\2P\NM023\20260209\1';
 
 fs = dir(fullfile(root, '*.tif'));
 fname = fs(1).name;

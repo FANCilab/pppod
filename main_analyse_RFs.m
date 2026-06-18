@@ -5,8 +5,8 @@ clear;
 i = 0;
 
 i = i+1;
-db(i).subject    = 'NM035'; % animal name
-db(i).date          = '20260513'; % date of the recording
+db(i).subject    = 'NM023'; % animal name
+db(i).date          = '20260209'; % date of the recording
 db(i).exp         = [1]; % all the experiments in the recording
 db(i).expID         = 1; % the experiment you want to compute pixel map of
 db(i).n_planes       = 1;
