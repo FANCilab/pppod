@@ -102,7 +102,7 @@ function report = ALFexporter(s2pPaths, ALFroot)
                     'sparse_noise_edges_deg', edgesPy));
 
             ok(i) = true;
-            status(i) = "ok";
+            status(i) = pyDictString(result, 'status');
             subject(i) = pyDictString(result, 'subject');
             date(i) = pyDictString(result, 'date');
             session(i) = pyDictString(result, 'session');
@@ -111,7 +111,11 @@ function report = ALFexporter(s2pPaths, ALFroot)
             nSparseNoiseWritten(i) = pyDictNumber(result, 'n_sparse_noise');
             nWritten(i) = pyDictNumber(result, 'n_written');
             writtenFiles{i} = pySequenceToStrings(result.get('written'));
-            message(i) = sprintf('Wrote %d file(s).', nWritten(i));
+            if status(i) == "skipped"
+                message(i) = pyDictString(result, 'message');
+            else
+                message(i) = sprintf('Wrote %d file(s).', nWritten(i));
+            end
             fprintf('[OK] %s/%s/%s | %s\n', subject(i), date(i), session(i), message(i));
 
         catch ME
@@ -159,7 +163,9 @@ function report = ALFexporter(s2pPaths, ALFroot)
             'message', ...
             'writtenFiles'});
 
-    fprintf('\nALFexporter summary: %d ok, %d failed.\n', nnz(ok), nnz(~ok));
+    nSkipped = nnz(status == "skipped");
+    fprintf('\nALFexporter summary: %d exported, %d skipped, %d failed.\n', ...
+        nnz(ok) - nSkipped, nSkipped, nnz(~ok));
 
     if any(~ok)
         warning('ALFexporter:SomeRunsFailed', ...
@@ -473,12 +479,49 @@ function code = directBridgePythonCode()
 "        ),"
 "    ]"
 ""
+"def _alf_export_present(raw_session, alf_root):"
+"    session_folder = Path(alf_root) / raw_session.subject / raw_session.date / raw_session.session"
+"    alf_folder = session_folder / 'alf'"
+"    raw_passive_folder = session_folder / 'raw_passive_data'"
+"    required_alf_files = ["
+"        alf_folder / '_ibl_wheel.position.npy',"
+"        alf_folder / '_ibl_wheel.timestamps.npy',"
+"        alf_folder / '_ibl_wheel.velocity.npy',"
+"        alf_folder / '_ibl_passiveRFM.times.npy',"
+"        alf_folder / '_ibl_sparseNoise.times.npy',"
+"        alf_folder / '_ibl_sparseNoise.xy.npy',"
+"    ]"
+"    required_raw_files = ["
+"        raw_passive_folder / '_iblrig_RFMapStim.raw.bin',"
+"    ]"
+"    fov_folders = sorted(alf_folder.glob('FOV_*')) if alf_folder.is_dir() else []"
+"    has_calcium = any("
+"        fov_folder.is_dir()"
+"        and (fov_folder / 'mpci.times.npy').is_file()"
+"        and (fov_folder / 'mpci.ROIActivityF.npy').is_file()"
+"        for fov_folder in fov_folders"
+"    )"
+"    return has_calcium and all(path.is_file() for path in required_alf_files + required_raw_files)"
+""
 "def export_sparse_noise_run_direct(run_path, alf_root, *, encoder_counts_per_revolution=65536, sparse_noise_edges_deg=(-135.0, 135.0, -40.0, 40.0)):"
 "    run_path = Path(run_path)"
 "    alf_root = Path(alf_root)"
 "    sparse_noise_edges_deg = tuple(float(x) for x in sparse_noise_edges_deg)"
 "    data_paths = _corrected_data_paths(run_path)"
 "    raw_session = _sparse_noise_raw_session(run_path)"
+"    if _alf_export_present(raw_session, alf_root):"
+"        return {"
+"            'status': 'skipped',"
+"            'subject': raw_session.subject,"
+"            'date': raw_session.date,"
+"            'session': raw_session.session,"
+"            'n_calcium': 0,"
+"            'n_wheel': 0,"
+"            'n_sparse_noise': 0,"
+"            'n_written': 0,"
+"            'written': [],"
+"            'message': 'Export already present; skipped existing ALF session.',"
+"        }"
 ""
 "    calcium_written = list(cal.single_session_calcium_export(run_path, alf_root, stim_type='sparse_noise'))"
 ""
@@ -511,6 +554,7 @@ function code = directBridgePythonCode()
 "        _validate_alf_timebase(alf_folder)"
 ""
 "    return {"
+"        'status': 'ok',"
 "        'subject': raw_session.subject,"
 "        'date': raw_session.date,"
 "        'session': raw_session.session,"
