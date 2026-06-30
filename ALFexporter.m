@@ -1,7 +1,8 @@
-function report = ALFexporter(s2pPaths, ALFroot)
+function [sessions, report] = ALFexporter(s2pPaths, ALFroot)
 %ALFEXPORTER Export selected Suite2p runs to ALF/ONE from MATLAB.
 %
-%   report = ALFexporter(s2pPaths, ALFroot)
+%   sessions = ALFexporter(s2pPaths, ALFroot)
+%   [sessions, report] = ALFexporter(s2pPaths, ALFroot)
 %
 %   Inputs
 %   ------
@@ -14,6 +15,10 @@ function report = ALFexporter(s2pPaths, ALFroot)
 %
 %   Output
 %   ------
+%   sessions : table
+%       Loader-ready table with variables subject, date, and session. Pass this
+%       directly to ALFloader(ALFroot, sessions). Failed exports are omitted.
+%
 %   report : table
 %       One row per Suite2p path with ok/status/message/nWritten/writtenFiles.
 %
@@ -42,7 +47,7 @@ function report = ALFexporter(s2pPaths, ALFroot)
 %       "D:\Data\2P\NM023\Processed\20260209\1"
 %       "D:\Data\2P\NM034\Processed\20260301\1"
 %   ];
-%   report = ALFexporter(s2pPaths, "D:\RFMapping\Data\ALF_groupA");
+%   sessions = ALFexporter(s2pPaths, "D:\Pipeline\Data");
 
     if nargin ~= 2
         error('ALFexporter requires exactly two inputs: ALFexporter(s2pPaths, ALFroot).');
@@ -163,9 +168,19 @@ function report = ALFexporter(s2pPaths, ALFroot)
             'message', ...
             'writtenFiles'});
 
+    goodRows = ok & subject ~= "" & date ~= "" & session ~= "";
+    sessions = table( ...
+        subject(goodRows), ...
+        date(goodRows), ...
+        session(goodRows), ...
+        'VariableNames', {'subject', 'date', 'session'});
+    sessions = unique(sessions, 'rows', 'stable');
+    sessions.Properties.UserData = struct('exportReport', report);
+
     nSkipped = nnz(status == "skipped");
     fprintf('\nALFexporter summary: %d exported, %d skipped, %d failed.\n', ...
         nnz(ok) - nSkipped, nSkipped, nnz(~ok));
+    fprintf('ALFexporter sessions for ALFloader: %d\n', height(sessions));
 
     if any(~ok)
         warning('ALFexporter:SomeRunsFailed', ...

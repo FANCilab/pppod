@@ -119,7 +119,9 @@ opts.maxPVal = 0.05;
 opts.minEV_shift = 0.04;
 opts.minPeak_shift = 7.7;
 opts.thresh_subfield = 0.7;
-opts.numShifts = 500;
+opts.cropAzimuthBelowEnabled = false;
+opts.cropAzimuthBelowDeg = -40;
+opts.numShifts = 10;
 opts.resultsRoot = 'D:\Results';
 opts.runningRegressor = false;
 opts.useL1 = false;
@@ -287,6 +289,8 @@ maxPVal = opts.maxPVal;
 minEV_shift = opts.minEV_shift; %#ok<NASGU>
 minPeak_shift = opts.minPeak_shift;
 thresh_subfield = opts.thresh_subfield;
+cropAzimuthBelowEnabled = opts.cropAzimuthBelowEnabled;
+cropAzimuthBelowDeg = opts.cropAzimuthBelowDeg;
 numShifts = opts.numShifts;
 verbose = opts.verbose;
 
@@ -327,6 +331,8 @@ db.useRunningRegressor = useRunningRegressor;
 db.selectedModality = selectedModality;
 db.requestedModality = opts.requestedModality;
 db.L1 = useL1;
+db.cropAzimuthBelowEnabled = cropAzimuthBelowEnabled;
+db.cropAzimuthBelowDeg = cropAzimuthBelowDeg;
 db.fov = fovName;
 
 folder = struct();
@@ -391,6 +397,20 @@ edges = double(stimData.edges);
 
 % c. Use the ALF frame-by-frame sparse-noise movie directly.
 stimMatrix = double(stimData.frames);
+stimulusCrop = localEmptyStimulusCrop();
+if cropAzimuthBelowEnabled
+    [stimMatrix, edges, stimulusCrop] = localCropStimulusAzimuthBelow( ...
+        stimMatrix, edges, cropAzimuthBelowDeg);
+    fprintf('[PROGRESS] Cropped stimulus azimuth < %.6g deg: kept cols %d/%d, edges=%s\n', ...
+        cropAzimuthBelowDeg, stimulusCrop.nColsKept, stimulusCrop.nColsOriginal, mat2str(edges, 6));
+else
+    stimulusCrop.enabled = false;
+    stimulusCrop.thresholdDeg = cropAzimuthBelowDeg;
+    stimulusCrop.edgesOriginal = edges;
+    stimulusCrop.edgesCropped = edges;
+    stimulusCrop.nColsOriginal = size(stimMatrix, 3);
+    stimulusCrop.nColsKept = size(stimMatrix, 3);
+end
 stimSize = [size(stimMatrix, 2), size(stimMatrix, 3)];
 dbgRFPrintStimMovie('stimMatrix passed to whiteNoise.makeStimToeplitz', stimMatrix);
 dbgRFMsg('[DEBUG] stimSize=[%d %d], edges=%s\n', stimSize(1), stimSize(2), mat2str(edges, 6));
@@ -459,7 +479,7 @@ dbgRFPrintMatrix('deconvolved caTraces after crop', caTraces);
 % b. The only trace preprocessing step: high-pass filter the deconvolved traces.
 %dbgRFPrintMatrix('deconvolved caTraces after traces.highPassFilter', caTraces);
 
-% c. Put high-pass-filtered deconvolved traces on the model timebase and
+% c. Put deconvolved traces on the model timebase and
 % z-score each neuron independently for regression.  No alignSampling,
 % removeDecay, or stimulus-frame smoothing is applied.
 tBin_ca = median(diff(t_ca));
@@ -470,7 +490,7 @@ caTraces = interp1(t_ca, caTraces, t_toeplitz);
 zTraces = (caTraces - mean(caTraces, 1, 'omitnan')) ./ ...
     std(caTraces, 0, 1, 'omitnan');
 modelTimes = t_toeplitz(:);
-dbgRFPrintMatrix('high-pass deconvolved caTraces after interp1 onto t_toeplitz', caTraces);
+dbgRFPrintMatrix('deconvolved caTraces after interp1 onto t_toeplitz', caTraces);
 dbgRFPrintMatrix('zTraces before cleanup', zTraces);
 
 % f. Joint time/unit/stimulus/run cleanup. If the running regressor is enabled,
@@ -896,6 +916,7 @@ results.bestSubfields = bestSubFields;
 results.subfieldSigns = subFieldSigns;
 results.optimalDelays = optimalDelays;
 results.edges = edges;
+results.stimulusCrop = stimulusCrop;
 results.useRunningRegressor = useRunningRegressor;
 results.running.enabled = useRunningRegressor;
 results.running.timestamps = t_toeplitz;
@@ -949,6 +970,7 @@ metadata.L1 = useL1;
 metadata.modalitySelectionUsedL1 = false;
 metadata.modalitySelectionRule = 'L1 is never used during modality=best dry-run comparisons.';
 metadata.modalitySelection = opts.selectionInfo;
+metadata.stimulusCrop = stimulusCrop;
 metadata.sourceFunction = mfilename;
 metadata.resultMatFile = rfResultFile;
 
@@ -1065,7 +1087,7 @@ switch modality
         preprocessing.neuropilCorrection = 's2pUtils.estimateNeuropil_LFR';
         preprocessing.description = ['tracesPreprocessed contains curated LFR neuropil-corrected traces after ', ...
             'Gaussian smoothing sigma=2 samples, crop, interp1 onto modelTimes, z-scoring, and model-row cleanup. ', ...
-            'No alignSampling, removeDecay, highPassFilter, or stimulus-frame smoothing was applied.'];
+            'No alignSampling, removeDecay, or stimulus-frame smoothing was applied.'];
 
     otherwise
         error('ALF_main_analyse_RFs:BadModality', 'Unsupported modality: %s', modality);
@@ -1078,6 +1100,54 @@ if ~isempty(stimPosition) && numel(stimPosition) == 4
 else
     edges = [1 size(frames, 3) 1 size(frames, 2)];
 end
+end
+
+function stimulusCrop = localEmptyStimulusCrop()
+stimulusCrop = struct();
+stimulusCrop.enabled = false;
+stimulusCrop.thresholdDeg = NaN;
+stimulusCrop.edgesOriginal = [];
+stimulusCrop.edgesCropped = [];
+stimulusCrop.nColsOriginal = NaN;
+stimulusCrop.nColsKept = NaN;
+stimulusCrop.keptColumns = [];
+stimulusCrop.keptAzimuthCentersDeg = [];
+end
+
+function [stimMatrix, edges, stimulusCrop] = localCropStimulusAzimuthBelow(stimMatrix, edges, thresholdDeg)
+stimulusCrop = localEmptyStimulusCrop();
+stimulusCrop.enabled = true;
+stimulusCrop.thresholdDeg = thresholdDeg;
+stimulusCrop.edgesOriginal = edges;
+stimulusCrop.nColsOriginal = size(stimMatrix, 3);
+
+if numel(edges) ~= 4
+    error('ALF_main_analyse_RFs:BadStimulusEdges', ...
+        'Sparse-noise edges must be [left right bottom top] before azimuth cropping.');
+end
+if size(stimMatrix, 3) < 1
+    error('ALF_main_analyse_RFs:EmptyStimulusColumns', ...
+        'Stimulus movie has no azimuth columns to crop.');
+end
+
+azimuthEdges = linspace(edges(1), edges(2), size(stimMatrix, 3) + 1);
+azimuthCenters = azimuthEdges(1:end-1) + diff(azimuthEdges) ./ 2;
+keepCols = azimuthCenters >= thresholdDeg;
+if ~any(keepCols)
+    error('ALF_main_analyse_RFs:AzimuthCropRemovedAllColumns', ...
+        'Azimuth crop threshold %.6g deg removed all %d stimulus columns.', ...
+        thresholdDeg, size(stimMatrix, 3));
+end
+
+keptColIdx = find(keepCols);
+stimMatrix = stimMatrix(:, :, keepCols);
+edges(1) = azimuthEdges(keptColIdx(1));
+edges(2) = azimuthEdges(keptColIdx(end) + 1);
+
+stimulusCrop.edgesCropped = edges;
+stimulusCrop.nColsKept = size(stimMatrix, 3);
+stimulusCrop.keptColumns = keptColIdx(:).';
+stimulusCrop.keptAzimuthCentersDeg = azimuthCenters(keepCols);
 end
 
 function B = localFitModel(A, Y, useL1, lambdaL1)
