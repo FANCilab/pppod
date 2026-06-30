@@ -100,10 +100,10 @@ FOV_NAMES: list[str] | None = None
 # groupD v1->MO?
 
 GROUP_SUBJECTS = {
-    "groupA": {"NM023", "NM034", "NM036"},
-    "groupB": {"HS035"},
+    "groupA": {"NM023", "NM034", "NM036","NM041"},
+    "groupB": {"HS035","HS036","HS037","HS038"},
     "groupC": {"NM035", "NM037", "NM039", "NM044"},
-    "groupD": {"NM040"},
+    "groupD": {"NM040","NM042","NM043"},
 }
 SUBJECT_GROUP = {
     subject: group
