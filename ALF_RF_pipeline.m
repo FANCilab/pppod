@@ -23,7 +23,6 @@ s2pPaths = ["\\10.233.25.135\FANCiNAS1\Data\2P\NM035\Processed\20260513\1"];
 loadedSessions = ALFloader(ALFroot, sessions);
 summaries = ALF_main_analyse_RFs(loadedSessions, modality, resultsRoot, runningRegressor, useL1);
 
-
 flipFOVs = [
     "NM023/2026-02-09/2/FOV_01"
     "NM023/2026-04-28/1/FOV_01"
