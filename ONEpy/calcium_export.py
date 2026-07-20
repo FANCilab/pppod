@@ -803,12 +803,11 @@ def _load_di3_none_pairs(timing_path: Path) -> tuple[np.ndarray, np.ndarray]:
     di3_times: list[float] = []
     none_times: list[float] = []
     pending_di3: float | None = None
+    di3_label_mode = _infer_di3_label_mode(timing_path)
     with open(timing_path, newline="") as file_obj:
         reader = csv.reader(file_obj)
         for row in reader:
-            if len(row) < 2:
-                continue
-            label = row[1].strip()
+            label = _timestamped_digital_label(row, di3_label_mode)
             if label not in {"DI3", "None"}:
                 continue
             try:
@@ -1266,10 +1265,11 @@ def _stat_signature(roi_stat) -> tuple:
 
 def _load_all_di3_times(timing_path: Path) -> np.ndarray:
     times: list[float] = []
+    di3_label_mode = _infer_di3_label_mode(timing_path)
     with open(timing_path, newline="") as file_obj:
         reader = csv.reader(file_obj)
         for row in reader:
-            if len(row) >= 2 and row[1].strip() == "DI3":
+            if _timestamped_digital_label(row, di3_label_mode) == "DI3":
                 try:
                     times.append(float(row[0]))
                 except ValueError as exc:
@@ -1284,6 +1284,51 @@ def _load_all_di3_times(timing_path: Path) -> np.ndarray:
     if values.size > 1 and np.any(np.diff(values) <= 0):
         raise ValueError(f"DI3 frame times must be strictly increasing in {timing_path}")
     return values
+
+
+def _infer_di3_label_mode(timing_path: Path) -> str:
+    """Infer where timestamped_digital.csv stores DI3 labels.
+
+    Most sessions use column 2 directly (timestamp, DI3/None).  Some exports
+    instead put the port name in column 2 and the DI channel in column 3, e.g.
+    timestamp, DIPort2, DI3.  Detect that file format from the rows instead of
+    naming individual sessions.
+    """
+
+    has_primary_di3 = False
+    has_secondary_di3 = False
+
+    with open(timing_path, newline="") as file_obj:
+        reader = csv.reader(file_obj)
+        for row in reader:
+            if len(row) >= 2 and row[1].strip() == "DI3":
+                has_primary_di3 = True
+            if len(row) >= 3 and row[1].strip() == "DIPort2" and row[2].strip() == "DI3":
+                has_secondary_di3 = True
+            if has_primary_di3:
+                return "primary"
+
+    if has_secondary_di3:
+        return "dipport2_secondary"
+    return "primary"
+
+
+def _timestamped_digital_label(row: list[str], di3_label_mode: str) -> str | None:
+    if len(row) < 2:
+        return None
+
+    primary = row[1].strip()
+    if primary in {"DI3", "None"}:
+        return primary
+
+    if di3_label_mode == "dipport2_secondary" and primary == "DIPort2":
+        secondary = row[2].strip() if len(row) >= 3 else ""
+        if secondary == "DI3":
+            return "DI3"
+        if secondary in {"", "None"}:
+            return "None"
+
+    return None
 
 
 def _load_frame_times(

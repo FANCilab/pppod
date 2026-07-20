@@ -1,59 +1,120 @@
-function summaries = ALF_main_analyse_RFs(loadedSessions, modality, resultsRoot, runningRegressor, useL1)
+function summaries = ALF_main_analyse_RFs(loadedSessions, modality, resultsRoot, rightHemisphereFOVs, opts)
 %ALF_MAIN_ANALYSE_RFS Run sparse-noise RF mapping from ALFloader output.
 %
-% summaries = ALF_main_analyse_RFs(loadedSessions, modality, resultsRoot, runningRegressor, useL1)
+% summaries = ALF_main_analyse_RFs(loadedSessions, modality, resultsRoot, rightHemisphereFOVs, opts)
 %
 % Inputs
 %   loadedSessions    Struct array returned by ALFloader.m.
-%   modality          'deconv', 'traces', or 'best'. Default: 'deconv'.
+%   modality          'deconv' or 'traces'. Default: 'deconv'.
 %   resultsRoot       Output root. Default: 'D:\Results'.
-%   runningRegressor  Include wheel-speed temporal regressors. Default: false.
-%   useL1             Use global L1/FISTA solver after modality is known. Default: false.
+%   rightHemisphereFOVs
+%                     subject/date/session/FOV_XX entries treated as right hemisphere.
+%                     Default: empty, so all FOVs are assumed left hemisphere.
+%                     Example: "NM040/2026-06-30/1/FOV_00"
+%   opts              Optional struct overriding localDefaultOptions fields.
+%                     Common fields: runningRegressor, useL1,
+%                     azimuthCropAngleDeg, lambdas, l1Lambdas,
+%                     rf_timeLimits, run_timeLimits, crossFolds, numShifts,
+%                     saveResults, verbose. Defaults preserve current behavior.
+%
+% Options and defaults
+%   opts.stimPosition = [-135 135 -40 40]
+%                     Sparse-noise screen edges [left right bottom top] in visual degrees.
+%   opts.lambdas = logspace(-4, -1, 4)
+%                     Ridge-regression regularization values tested by cross-validation.
+%   opts.l1Lambdas = logspace(-5, -2, 4)
+%                     L1/FISTA regularization values tested when opts.useL1 is true.
+%   opts.rf_timeLimits = [0 2]
+%                     RF stimulus-response lag window in seconds.
+%   opts.run_timeLimits = [-5 5]
+%                     Running-regressor lag window in seconds.
+%   opts.crossFolds = 3
+%                     Number of folds used to cross-validate RF model fits.
+%   opts.minEV = 0.01
+%                     Minimum explained variance threshold for considering an RF fit useful.
+%   opts.maxPVal = 0.05
+%                     Maximum p-value threshold for circular-shift significance testing.
+%   opts.minEV_shift = 0.04
+%                     Minimum explained variance used by legacy circular-shift filtering.
+%   opts.minPeak_shift = 7.7
+%                     Minimum peak-to-noise threshold for circular-shift RF quality.
+%   opts.thresh_subfield = 0.7
+%                     Relative threshold used to define RF subfields from the RF peak.
+%   opts.azimuthCropAngleDeg = -135
+%                     Azimuth crop boundary magnitude; left FOVs crop below -abs(value),
+%                     right FOVs crop above abs(value).
+%   opts.rightHemisphereFOVs = strings(0, 1)
+%                     FOV keys treated as right hemisphere; overwritten by rightHemisphereFOVs.
+%   opts.numShifts = 500
+%                     Number of circular shifts used to estimate RF significance.
+%   opts.resultsRoot = 'D:\Results'
+%                     Default RF result root; overwritten by the resultsRoot input.
+%   opts.runningRegressor = false
+%                     Include wheel velocity as an additional running regressor.
+%   opts.useL1 = false
+%                     Use the slower L1/FISTA solver instead of ridge regression.
+%   opts.saveResults = true
+%                     Write result arrays, metadata, and plots to disk.
+%   opts.verbose = true
+%                     Print progress and diagnostic messages during RF analysis.
+%   opts.npyMatlabPath = 'C:\Users\ichaker\Desktop\RFmapping\npy-matlab\npy-matlab'
+%                     Folder containing npy-matlab read/write helpers.
+%   opts.neuropilSmoothSigmaSamples = 2
+%                     Gaussian smoothing sigma, in samples, for neuropil-corrected traces.
+%   opts.traceStimPaddingSeconds = 10
+%                     Extra stimulus time padding, in seconds, kept when preparing trace data.
+%   opts.maxMissingTraceFraction = 0.1
+%                     Maximum allowed fraction of missing trace samples after stimulus alignment.
+%   opts.shiftBatchElementTarget = 1000000000
+%                     Target element count per circular-shift batch to control memory use.
+%   opts.fistaMaxIter = 500
+%                     Maximum FISTA iterations for L1 model fitting.
+%   opts.fistaRelTol = 1e-4
+%                     Relative convergence tolerance for FISTA L1 model fitting.
+%   opts.logFile = ''
+%                     Per-session command-window diary file; filled in by this function.
 %
 % Results are written as resultsRoot/subject/date/session/alf/FOV_XX with
 % the same _FANCi_rf ALF names used by the deprecated RF scripts. Additional
-% JSON ALF metadata files report selected modality and L1 use.
+% JSON ALF metadata files report modality and L1 use.
 
-if nargin < 1 || isempty(loadedSessions)
-    error('ALF_main_analyse_RFs:MissingSessions', 'loadedSessions from ALFloader.m is required.');
-end
 if nargin < 2 || isempty(modality)
     modality = 'deconv';
 end
 if nargin < 3 || isempty(resultsRoot)
     resultsRoot = 'D:\Results';
 end
-if nargin < 4 || isempty(runningRegressor)
-    runningRegressor = false;
+if nargin < 4 || isempty(rightHemisphereFOVs)
+    rightHemisphereFOVs = strings(0, 1);
 end
-if nargin < 5 || isempty(useL1)
-    useL1 = false;
+if nargin < 5 || isempty(opts)
+    opts = struct();
 end
 
-modality = validatestring(char(string(modality)), {'deconv', 'traces', 'best'}, mfilename, 'modality');
+modality = validatestring(char(string(modality)), {'deconv', 'traces'}, mfilename, 'modality');
+if nargin < 1 || isempty(loadedSessions)
+    error('ALF_main_analyse_RFs:MissingSessions', 'loadedSessions from ALFloader.m is required.');
+end
 resultsRoot = char(string(resultsRoot));
-runningRegressor = logical(runningRegressor);
-useL1 = logical(useL1);
+rightHemisphereFOVs = localNormalizeFovList(rightHemisphereFOVs);
 
-localEnsurePaths();
+opts = localMergeOptions(localDefaultOptions(), opts);
+opts.resultsRoot = resultsRoot;
+opts.rightHemisphereFOVs = rightHemisphereFOVs;
+opts = localValidateOptions(opts);
+
+localEnsurePaths(opts);
 
 global RF_VERBOSE;
-RF_VERBOSE = true;
-
-opts = localDefaultOptions();
-opts.resultsRoot = resultsRoot;
-opts.runningRegressor = runningRegressor;
-opts.useL1 = useL1;
-opts.requestedModality = modality;
-opts.saveResults = true;
-opts.verbose = true;
+RF_VERBOSE = opts.verbose;
 
 loadedSessions = loadedSessions(:);
 summaries = repmat(localEmptySummary(), 0, 1);
 
 fprintf('\n========== ALF_main_analyse_RFs ==========' );
-fprintf('\n[PROGRESS] sessions=%d requestedModality=%s resultsRoot=%s runningRegressor=%d L1=%d\n', ...
-    numel(loadedSessions), modality, resultsRoot, runningRegressor, useL1);
+fprintf('\n[PROGRESS] sessions=%d modality=%s resultsRoot=%s runningRegressor=%d L1=%d azimuthCropAngleDeg=%.6g rightHemisphereFOVs=%d\n', ...
+    numel(loadedSessions), modality, resultsRoot, opts.runningRegressor, opts.useL1, ...
+    opts.azimuthCropAngleDeg, numel(rightHemisphereFOVs));
 
 for iSession = 1:numel(loadedSessions)
     sessionData = loadedSessions(iSession);
@@ -69,34 +130,23 @@ for iSession = 1:numel(loadedSessions)
 
     logFile = fullfile(sessionResultsPath, sprintf('%s_%s.log', mfilename, datestr(now, 'yyyymmdd_HHMMSS')));
     diary(logFile);
-    diaryCleanup = onCleanup(@() diary('off')); %#ok<NASGU>
+    diaryCleanup = onCleanup(@() diary('off'));
 
     fprintf('\n========== RF session %d/%d: %s / %s / %s ==========' , ...
         iSession, numel(loadedSessions), subject, date, session);
     fprintf('\n[PROGRESS] command-window log: %s\n', logFile);
 
-    if strcmp(modality, 'best')
-        [selectedModality, selectionInfo] = localSelectBestModality(sessionData, opts);
-    else
-        selectedModality = modality;
-        selectionInfo = struct('requestedModality', modality, 'selectedModality', modality, ...
-            'testedFOVs', string.empty(0, 1), 'deconvGoodRFs', [], 'tracesGoodRFs', [], ...
-            'rule', 'caller selected modality');
-    end
-
-    fprintf('[PROGRESS] selected modality for %s/%s/%s: %s\n', ...
-        subject, date, session, selectedModality);
-    if useL1
-        fprintf('[PROGRESS] L1 requested;\n');
+    fprintf('[PROGRESS] modality for %s/%s/%s: %s\n', ...
+        subject, date, session, modality);
+    if opts.useL1
+        fprintf('[PROGRESS] L1 enabled.\n');
     end
 
     fovNames = localFovNames(sessionData);
     for iFOV = 1:numel(sessionData.fov)
         fovOpts = opts;
-        fovOpts.selectedModality = selectedModality;
-        fovOpts.selectionInfo = selectionInfo;
         fovOpts.logFile = logFile;
-        summary = localRunOneFov(sessionData, iFOV, fovNames, selectedModality, fovOpts);
+        summary = localRunOneFov(sessionData, iFOV, fovNames, modality, fovOpts);
         summaries(end + 1, 1) = summary; %#ok<AGROW>
     end
 
@@ -111,7 +161,7 @@ opts = struct();
 opts.stimPosition = [-135 135 -40 40];
 opts.lambdas = logspace(-4, -1, 4);
 opts.l1Lambdas = logspace(-5, -2, 4);
-opts.rf_timeLimits = [0.2 1];
+opts.rf_timeLimits = [0 2];
 opts.run_timeLimits = [-5 5];
 opts.crossFolds = 3;
 opts.minEV = 0.01;
@@ -119,35 +169,132 @@ opts.maxPVal = 0.05;
 opts.minEV_shift = 0.04;
 opts.minPeak_shift = 7.7;
 opts.thresh_subfield = 0.7;
-opts.cropAzimuthBelowEnabled = false;
-opts.cropAzimuthBelowDeg = -40;
+opts.azimuthCropAngleDeg = -135;
+opts.rightHemisphereFOVs = strings(0, 1);
 opts.numShifts = 500;
 opts.resultsRoot = 'D:\Results';
 opts.runningRegressor = false;
 opts.useL1 = false;
-opts.requestedModality = 'deconv';
-opts.selectedModality = 'deconv';
 opts.saveResults = true;
 opts.verbose = true;
-opts.selectionInfo = struct();
+opts.npyMatlabPath = 'C:\Users\ichaker\Desktop\RFmapping\npy-matlab\npy-matlab';
+opts.neuropilSmoothSigmaSamples = 2;
+opts.traceStimPaddingSeconds = 10;
+opts.maxMissingTraceFraction = 0.1;
+opts.shiftBatchElementTarget = 1000000000;
+opts.fistaMaxIter = 500;
+opts.fistaRelTol = 1e-4;
 opts.logFile = '';
+end
+
+function opts = localMergeOptions(defaults, overrides)
+opts = defaults;
+if isempty(overrides)
+    return
+end
+if ~isstruct(overrides) || ~isscalar(overrides)
+    error('ALF_main_analyse_RFs:BadOptions', 'opts must be a scalar struct.');
+end
+names = fieldnames(overrides);
+for i = 1:numel(names)
+    opts.(names{i}) = overrides.(names{i});
+end
+end
+
+function opts = localValidateOptions(opts)
+opts.runningRegressor = logical(opts.runningRegressor);
+opts.useL1 = logical(opts.useL1);
+opts.saveResults = logical(opts.saveResults);
+opts.verbose = logical(opts.verbose);
+opts.azimuthCropAngleDeg = double(opts.azimuthCropAngleDeg);
+if ~isscalar(opts.azimuthCropAngleDeg) || ~isfinite(opts.azimuthCropAngleDeg)
+    error('ALF_main_analyse_RFs:BadAzimuthCropAngle', ...
+        'opts.azimuthCropAngleDeg must be a finite scalar.');
+end
+opts.rightHemisphereFOVs = localNormalizeFovList(opts.rightHemisphereFOVs);
+opts.stimPosition = localValidateNumericVector(opts.stimPosition, 4, 'opts.stimPosition');
+opts.lambdas = localValidateNumericVector(opts.lambdas, [], 'opts.lambdas');
+opts.l1Lambdas = localValidateNumericVector(opts.l1Lambdas, [], 'opts.l1Lambdas');
+opts.rf_timeLimits = localValidateNumericVector(opts.rf_timeLimits, 2, 'opts.rf_timeLimits');
+opts.run_timeLimits = localValidateNumericVector(opts.run_timeLimits, 2, 'opts.run_timeLimits');
+opts.crossFolds = localValidatePositiveInteger(opts.crossFolds, 'opts.crossFolds');
+opts.numShifts = localValidatePositiveInteger(opts.numShifts, 'opts.numShifts');
+opts.neuropilSmoothSigmaSamples = localValidatePositiveScalar(opts.neuropilSmoothSigmaSamples, 'opts.neuropilSmoothSigmaSamples');
+opts.traceStimPaddingSeconds = localValidateNonnegativeScalar(opts.traceStimPaddingSeconds, 'opts.traceStimPaddingSeconds');
+opts.maxMissingTraceFraction = localValidateFraction(opts.maxMissingTraceFraction, 'opts.maxMissingTraceFraction');
+opts.shiftBatchElementTarget = localValidatePositiveScalar(opts.shiftBatchElementTarget, 'opts.shiftBatchElementTarget');
+opts.fistaMaxIter = localValidatePositiveInteger(opts.fistaMaxIter, 'opts.fistaMaxIter');
+opts.fistaRelTol = localValidatePositiveScalar(opts.fistaRelTol, 'opts.fistaRelTol');
+opts.minEV = localValidateFiniteScalar(opts.minEV, 'opts.minEV');
+opts.maxPVal = localValidateFraction(opts.maxPVal, 'opts.maxPVal');
+opts.minEV_shift = localValidateFiniteScalar(opts.minEV_shift, 'opts.minEV_shift');
+opts.minPeak_shift = localValidateFiniteScalar(opts.minPeak_shift, 'opts.minPeak_shift');
+opts.thresh_subfield = localValidateFiniteScalar(opts.thresh_subfield, 'opts.thresh_subfield');
+opts.resultsRoot = char(string(opts.resultsRoot));
+opts.npyMatlabPath = char(string(opts.npyMatlabPath));
+end
+
+function x = localValidateNumericVector(x, requiredLength, name)
+x = double(x);
+if ~isvector(x) || isempty(x) || ~all(isfinite(x(:)))
+    error('ALF_main_analyse_RFs:BadOptions', '%s must be a non-empty finite numeric vector.', name);
+end
+if ~isempty(requiredLength) && numel(x) ~= requiredLength
+    error('ALF_main_analyse_RFs:BadOptions', '%s must have %d elements.', name, requiredLength);
+end
+x = x(:).';
+end
+
+function x = localValidateFiniteScalar(x, name)
+x = double(x);
+if ~isscalar(x) || ~isfinite(x)
+    error('ALF_main_analyse_RFs:BadOptions', '%s must be a finite scalar.', name);
+end
+end
+
+function x = localValidatePositiveScalar(x, name)
+x = localValidateFiniteScalar(x, name);
+if x <= 0
+    error('ALF_main_analyse_RFs:BadOptions', '%s must be positive.', name);
+end
+end
+
+function x = localValidateNonnegativeScalar(x, name)
+x = localValidateFiniteScalar(x, name);
+if x < 0
+    error('ALF_main_analyse_RFs:BadOptions', '%s must be nonnegative.', name);
+end
+end
+
+function x = localValidatePositiveInteger(x, name)
+x = localValidatePositiveScalar(x, name);
+if fix(x) ~= x
+    error('ALF_main_analyse_RFs:BadOptions', '%s must be an integer.', name);
+end
+end
+
+function x = localValidateFraction(x, name)
+x = localValidateFiniteScalar(x, name);
+if x < 0 || x > 1
+    error('ALF_main_analyse_RFs:BadOptions', '%s must be between 0 and 1.', name);
+end
 end
 
 function summary = localEmptySummary()
 summary = struct('subject', string.empty(0, 0), 'date', string.empty(0, 0), ...
     'session', string.empty(0, 0), 'fov', string.empty(0, 0), ...
-    'requestedModality', string.empty(0, 0), 'selectedModality', string.empty(0, 0), ...
+    'modality', string.empty(0, 0), ...
     'runningRegressor', false, 'L1', false, 'nROIs', NaN, 'validUnits', NaN, ...
     'validRFs', NaN, 'goodRFs', NaN, 'resultFile', string.empty(0, 0));
 end
 
-function localEnsurePaths()
+function localEnsurePaths(opts)
 codeRepo = fileparts(mfilename('fullpath'));
 if isempty(codeRepo)
     codeRepo = pwd;
 end
 addpath(genpath(codeRepo));
-npyMatlabPath = 'C:\Users\ichaker\Desktop\RFmapping\npy-matlab\npy-matlab';
+npyMatlabPath = opts.npyMatlabPath;
 if isfolder(npyMatlabPath)
     addpath(genpath(npyMatlabPath));
 end
@@ -181,92 +328,26 @@ for i = 1:numel(sessionData.fov)
 end
 end
 
-function [selectedModality, info] = localSelectBestModality(sessionData, opts)
-selectOpts = opts;
-selectOpts.useL1 = false;
-selectOpts.saveResults = false;
-selectOpts.selectedModality = 'best-selection';
-
-fprintf('[PROGRESS] modality=best: testing deconv and traces without L1.\n');
-fovNames = localFovNames(sessionData);
-deconvCounts = NaN(numel(fovNames), 1);
-tracesCounts = NaN(numel(fovNames), 1);
-tested = strings(0, 1);
-
-for iFOV = 1:numel(fovNames)
-    tested(end + 1, 1) = string(fovNames{iFOV}); %#ok<AGROW>
-    for iMod = 1:2
-        candidate = {'deconv', 'traces'};
-        candidate = candidate{iMod};
-        if ~localCanUseModality(sessionData.fov(iFOV), candidate)
-            fprintf('[PROGRESS] best-selection %s %s skipped: required arrays missing.\n', fovNames{iFOV}, candidate);
-            continue
-        end
-        fprintf('[PROGRESS] best-selection testing %s on %s with L1=0.\n', candidate, fovNames{iFOV});
-        try
-            summary = localRunOneFov(sessionData, iFOV, fovNames, candidate, selectOpts);
-            if strcmp(candidate, 'deconv')
-                deconvCounts(iFOV) = summary.goodRFs;
-            else
-                tracesCounts(iFOV) = summary.goodRFs;
-            end
-        catch exc
-            warning('ALF_main_analyse_RFs:BestSelectionFailed', ...
-                'Best-selection %s failed for %s: %s', candidate, fovNames{iFOV}, exc.message);
-        end
-    end
-
-    deconvTotal = sum(deconvCounts, 'omitnan');
-    tracesTotal = sum(tracesCounts, 'omitnan');
-    fprintf('[PROGRESS] best-selection after %s: deconvGood=%g tracesGood=%g\n', ...
-        fovNames{iFOV}, deconvTotal, tracesTotal);
-    if isfinite(deconvTotal) && isfinite(tracesTotal) && deconvTotal ~= tracesTotal
-        break
-    end
+function fovList = localNormalizeFovList(fovList)
+fovList = string(fovList(:));
+fovList = strtrim(fovList);
+fovList = replace(fovList, "\", "/");
+fovList = fovList(strlength(fovList) > 0);
 end
 
-deconvTotal = sum(deconvCounts, 'omitnan');
-tracesTotal = sum(tracesCounts, 'omitnan');
-if tracesTotal > deconvTotal
-    selectedModality = 'traces';
-elseif deconvTotal > tracesTotal
-    selectedModality = 'deconv';
-elseif localCanUseAny(sessionData, 'deconv')
-    selectedModality = 'deconv';
-    fprintf('[PROGRESS] best-selection tie; defaulting to deconv.\n');
-else
-    selectedModality = 'traces';
-    fprintf('[PROGRESS] best-selection tie with no deconv arrays; using traces.\n');
+function fovKey = localFovKey(subject, date, session, fovName)
+fovKey = char(strjoin(string({subject, date, session, fovName}), "/"));
 end
 
-info = struct();
-info.requestedModality = 'best';
-info.selectedModality = selectedModality;
-info.testedFOVs = tested;
-info.deconvGoodRFs = deconvCounts;
-info.tracesGoodRFs = tracesCounts;
-info.rule = 'first strict good-RF count winner across full-FOV no-L1 tests; ties test more FOVs, final tie prefers deconv';
+function tf = localIsRightHemisphereFov(fovKey, rightHemisphereFOVs)
+if isempty(rightHemisphereFOVs)
+    tf = false;
+    return
+end
+tf = any(strcmp(string(fovKey), rightHemisphereFOVs));
 end
 
-function tf = localCanUseAny(sessionData, modality)
-tf = false;
-for i = 1:numel(sessionData.fov)
-    tf = tf || localCanUseModality(sessionData.fov(i), modality);
-end
-end
-
-function tf = localCanUseModality(fov, modality)
-switch modality
-    case 'deconv'
-        tf = isfield(fov, 'deconvolved') && ~isempty(fov.deconvolved);
-    case 'traces'
-        tf = isfield(fov, 'F') && ~isempty(fov.F) && isfield(fov, 'Fneu') && ~isempty(fov.Fneu);
-    otherwise
-        tf = false;
-end
-end
-
-function summary = localRunOneFov(sessionData, iFOV, fovNames, selectedModality, opts)
+function summary = localRunOneFov(sessionData, iFOV, fovNames, modality, opts)
 subject = char(string(sessionData.subject));
 date = char(string(sessionData.date));
 session = char(string(sessionData.session));
@@ -286,13 +367,12 @@ run_timeLimits = opts.run_timeLimits;
 crossFolds = opts.crossFolds;
 minEV = opts.minEV;
 maxPVal = opts.maxPVal;
-minEV_shift = opts.minEV_shift; %#ok<NASGU>
 minPeak_shift = opts.minPeak_shift;
 thresh_subfield = opts.thresh_subfield;
-cropAzimuthBelowEnabled = opts.cropAzimuthBelowEnabled;
-cropAzimuthBelowDeg = opts.cropAzimuthBelowDeg;
 numShifts = opts.numShifts;
-verbose = opts.verbose;
+traceStimPaddingSeconds = opts.traceStimPaddingSeconds;
+maxMissingTraceFraction = opts.maxMissingTraceFraction;
+shiftBatchElementTarget = opts.shiftBatchElementTarget;
 
 expNumeric = str2double(session);
 if isnan(expNumeric)
@@ -317,6 +397,13 @@ end
 
 fov = sessionData.fov(iFOV);
 fovName = char(string(fov.name));
+fovKey = localFovKey(subject, date, session, fovName);
+rightHemisphere = localIsRightHemisphereFov(fovKey, opts.rightHemisphereFOVs);
+azimuthCropMagnitudeDeg = abs(opts.azimuthCropAngleDeg);
+cropAzimuthBelowEnabled = ~rightHemisphere;
+cropAzimuthBelowDeg = -azimuthCropMagnitudeDeg;
+cropAzimuthAboveEnabled = rightHemisphere;
+cropAzimuthAboveDeg = azimuthCropMagnitudeDeg;
 db = struct();
 db.subject = subject;
 db.date = date;
@@ -328,11 +415,15 @@ db.stimPosition = stimPosition;
 db.alfRoot = alfRoot;
 db.resultsRoot = resultsRoot;
 db.useRunningRegressor = useRunningRegressor;
-db.selectedModality = selectedModality;
-db.requestedModality = opts.requestedModality;
+db.modality = modality;
 db.L1 = useL1;
+db.azimuthCropAngleDeg = opts.azimuthCropAngleDeg;
+db.rightHemisphere = rightHemisphere;
+db.fovKey = fovKey;
 db.cropAzimuthBelowEnabled = cropAzimuthBelowEnabled;
 db.cropAzimuthBelowDeg = cropAzimuthBelowDeg;
+db.cropAzimuthAboveEnabled = cropAzimuthAboveEnabled;
+db.cropAzimuthAboveDeg = cropAzimuthAboveDeg;
 db.fov = fovName;
 
 folder = struct();
@@ -348,24 +439,20 @@ if opts.saveResults
 end
 
 [calcium, caData, roiTypes, curatedMask, roiIndexMatlab, roiIndex0, preprocessing, neuropilCorrection] = ...
-    localPrepareCalcium(fov, selectedModality, verbose);
+    localPrepareCalcium(fov, modality, opts);
 
 fprintf('\n=== Processing %s (%d/%d), modality=%s, L1=%d ===\n', ...
-    fovName, iFOV, numel(fovNames), selectedModality, useL1);
+    fovName, iFOV, numel(fovNames), modality, useL1);
 fprintf('[PROGRESS] Using %d/%d curated ROIs for RF fitting.\n', numel(roiIndexMatlab), numel(roiTypes));
 dbgRFMsg('[DEBUG] session path: %s\n', sessionPath);
 dbgRFMsg('[DEBUG] output results folder: %s\n', folder.results);
 dbgRFPrintTime('_ibl_passiveRFM.times / stimData.frameTimes', stimData.frameTimes);
 dbgRFPrintStimMovie('stimData.frames from ALFloader', stimData.frames);
 dbgRFPrintTime('mpci.times / calcium.timestamps', calcium.timestamps);
-dbgRFPrintMatrix('caData.traces selected modality input', caData.traces);
+dbgRFPrintMatrix('caData.traces modality input', caData.traces);
 dbgRFPrintOverlap('stim/calcium', stimData.frameTimes, caData.time);
 dbgRFPrintOverlap('stim/wheel', stimData.frameTimes, wheel.timestamps);
 dbgRFPrintOverlap('calcium/wheel', caData.time, wheel.timestamps);
-
-[cm_ON, cm_OFF] = colmaps.getRFMaps;
-ellipse_x = linspace(-pi, pi, 100);
-RFtypes = {'ON', 'OFF', 'ON+OFF'};
 
 % ALF stimulus.frames is already the frame-by-frame sparse-noise movie.
 t_stim = stimData.frameTimes;
@@ -398,19 +485,38 @@ edges = double(stimData.edges);
 % c. Use the ALF frame-by-frame sparse-noise movie directly.
 stimMatrix = double(stimData.frames);
 stimulusCrop = localEmptyStimulusCrop();
-if cropAzimuthBelowEnabled
-    [stimMatrix, edges, stimulusCrop] = localCropStimulusAzimuthBelow( ...
-        stimMatrix, edges, cropAzimuthBelowDeg);
-    fprintf('[PROGRESS] Cropped stimulus azimuth < %.6g deg: kept cols %d/%d, edges=%s\n', ...
-        cropAzimuthBelowDeg, stimulusCrop.nColsKept, stimulusCrop.nColsOriginal, mat2str(edges, 6));
+if cropAzimuthBelowEnabled || cropAzimuthAboveEnabled
+    [stimMatrix, edges, stimulusCrop] = localCropStimulusAzimuthRange( ...
+        stimMatrix, edges, ...
+        cropAzimuthBelowEnabled, cropAzimuthBelowDeg, ...
+        cropAzimuthAboveEnabled, cropAzimuthAboveDeg);
+    if rightHemisphere
+        cropHemisphereLabel = 'right';
+    else
+        cropHemisphereLabel = 'left';
+    end
+    fprintf('[PROGRESS] Cropped stimulus azimuth range: hemisphere=%s belowEnabled=%d belowDeg=%.6g aboveEnabled=%d aboveDeg=%.6g; kept cols %d/%d, edges=%s\n', ...
+        cropHemisphereLabel, ...
+        cropAzimuthBelowEnabled, cropAzimuthBelowDeg, ...
+        cropAzimuthAboveEnabled, cropAzimuthAboveDeg, ...
+        stimulusCrop.nColsKept, stimulusCrop.nColsOriginal, mat2str(edges, 6));
 else
     stimulusCrop.enabled = false;
+    stimulusCrop.belowEnabled = cropAzimuthBelowEnabled;
+    stimulusCrop.belowDeg = cropAzimuthBelowDeg;
+    stimulusCrop.aboveEnabled = cropAzimuthAboveEnabled;
+    stimulusCrop.aboveDeg = cropAzimuthAboveDeg;
     stimulusCrop.thresholdDeg = cropAzimuthBelowDeg;
+    stimulusCrop.thresholdBelowDeg = cropAzimuthBelowDeg;
+    stimulusCrop.thresholdAboveDeg = cropAzimuthAboveDeg;
     stimulusCrop.edgesOriginal = edges;
     stimulusCrop.edgesCropped = edges;
     stimulusCrop.nColsOriginal = size(stimMatrix, 3);
     stimulusCrop.nColsKept = size(stimMatrix, 3);
 end
+stimulusCrop.azimuthCropAngleDeg = opts.azimuthCropAngleDeg;
+stimulusCrop.rightHemisphere = rightHemisphere;
+stimulusCrop.fovKey = fovKey;
 stimSize = [size(stimMatrix, 2), size(stimMatrix, 3)];
 dbgRFPrintStimMovie('stimMatrix passed to whiteNoise.makeStimToeplitz', stimMatrix);
 dbgRFMsg('[DEBUG] stimSize=[%d %d], edges=%s\n', stimSize(1), stimSize(2), mat2str(edges, 6));
@@ -418,7 +524,6 @@ dbgRFMsg('[DEBUG] stimSize=[%d %d], edges=%s\n', stimSize(1), stimSize(2), mat2s
 % d. Build the stimulus Toeplitz matrix over rfBins.
 [toeplitz, t_toeplitz] = whiteNoise.makeStimToeplitz( ...
     stimMatrix, t_stim, rfBins);
-toeplitzRaw = toeplitz;
 dbgRFPrintTime('t_toeplitz returned by whiteNoise.makeStimToeplitz', t_toeplitz);
 dbgRFPrintMatrix('toeplitz returned by whiteNoise.makeStimToeplitz', toeplitz);
 dbgRFMsg('[DEBUG] toeplitz nonzero fraction=%.6g (%d/%d)\n', nnz(toeplitz) / numel(toeplitz), nnz(toeplitz), numel(toeplitz));
@@ -460,26 +565,25 @@ if useRunningRegressor
 else
     runBins = [];
     t_run = [];
-    runSpeedZ = [];
     runDesign = zeros(length(t_toeplitz), 0);
     dbgRFMsg('[DEBUG] running regressor disabled: runDesign is [%d x 0]\n', size(runDesign, 1));
 end
 runDesignRaw = runDesign;
 
-%% Step 3. Prepare deconvolved calcium traces
+%% Step 3. Prepare calcium traces
+traceDebugLabel = sprintf('%s caTraces', modality);
 
-% a. Crop deconvolved calcium to the sparse-noise stimulus window plus 10 s padding.
-t_ind = caData.time > t_stim(1) - 10 & caData.time < t_stim(end) + 10;
+% a. Crop calcium to the sparse-noise stimulus window plus configurable padding.
+t_ind = caData.time > t_stim(1) - traceStimPaddingSeconds & ...
+    caData.time < t_stim(end) + traceStimPaddingSeconds;
 caTraces = caData.traces(t_ind, :);
 t_ca = caData.time(t_ind);
-dbgRFMsg('[DEBUG] calcium crop to stim +/-10s: kept %d/%d samples\n', sum(t_ind), numel(t_ind));
+dbgRFMsg('[DEBUG] calcium crop to stim +/-%.6gs: kept %d/%d samples\n', ...
+    traceStimPaddingSeconds, sum(t_ind), numel(t_ind));
 dbgRFPrintTime('t_ca after crop', t_ca);
-dbgRFPrintMatrix('deconvolved caTraces after crop', caTraces);
+dbgRFPrintMatrix(sprintf('%s after crop', traceDebugLabel), caTraces);
 
-% b. The only trace preprocessing step: high-pass filter the deconvolved traces.
-%dbgRFPrintMatrix('deconvolved caTraces after traces.highPassFilter', caTraces);
-
-% c. Put deconvolved traces on the model timebase and
+% b. Put modality traces on the model timebase and
 % z-score each neuron independently for regression.  No alignSampling,
 % removeDecay, or stimulus-frame smoothing is applied.
 tBin_ca = median(diff(t_ca));
@@ -490,7 +594,7 @@ caTraces = interp1(t_ca, caTraces, t_toeplitz);
 zTraces = (caTraces - mean(caTraces, 1, 'omitnan')) ./ ...
     std(caTraces, 0, 1, 'omitnan');
 modelTimes = t_toeplitz(:);
-dbgRFPrintMatrix('deconvolved caTraces after interp1 onto t_toeplitz', caTraces);
+dbgRFPrintMatrix(sprintf('%s after interp1 onto t_toeplitz', traceDebugLabel), caTraces);
 dbgRFPrintMatrix('zTraces before cleanup', zTraces);
 
 % f. Joint time/unit/stimulus/run cleanup. If the running regressor is enabled,
@@ -504,7 +608,7 @@ ignoreStimTimes(~validTimes) = [];
 modelTimes(~validTimes) = [];
 
 ind = any(isnan(zTraces), 1) & ...
-    sum(isnan(zTraces), 1) / size(zTraces, 1) <= 0.1;
+    sum(isnan(zTraces), 1) / size(zTraces, 1) <= maxMissingTraceFraction;
 if sum(ind) > 0
     zTraces(:, ind) = fillmissing(zTraces(:, ind), 'constant', 0);
 end
@@ -558,9 +662,6 @@ if useRunningRegressor
         runDesign(:) = 0;
     end
     dbgRFMsg('[DEBUG] runDesign normalization: mean=%.12g std=%.12g finite=%d/%d\n', runDesignMean, runDesignStd, sum(isfinite(runDesign(:))), numel(runDesign));
-else
-    runDesignMean = NaN;
-    runDesignStd = NaN;
 end
 
 %% Step 4. Prepare regularization
@@ -649,7 +750,7 @@ for fold = 1:crossFolds
                     lms, zeros(size(lms, 1), nRunPred); ...
                     zeros(size(lmr, 1), nStimPred), lmr];
 
-                B = localFitModel(A, y_train, useL1, l1Lambdas(lamL1));
+                B = localFitModel(A, y_train, useL1, l1Lambdas(lamL1), opts);
                 predFull = [xStim_test, xRun_test] * B;
                 predRF = xStim_test * B(1:nStimPred, :);
 
@@ -714,7 +815,7 @@ for lamS = 1:length(lamStim)
                 zeros(size(lmr, 1), nStimPred), lmr];
             tr = padarray(zTraces(:, ind), nRegRows, 'post');
 
-            B = localFitModel(A, tr, useL1, l1Lambdas(lamL1));
+            B = localFitModel(A, tr, useL1, l1Lambdas(lamL1), opts);
             rFieldsFlat(:, ind) = B(1:nStimPred, :);
             runKernels(:, ind) = B(nStimPred+1:end, :);
             modelPredictionsValid(:, ind) = [stim, runDesign] * B;
@@ -752,7 +853,7 @@ dbgRFPrintVector('RF-only EV before shift test / ev', ev);
 ev_shift = NaN(size(caTraces, 2), numShifts);
 shifts = randi(size(zTraces, 1), numShifts, 1);
 
-batches = ceil(size(zTraces, 1) * numShifts * numel(validUnitInds) / 1000000000);
+batches = max(1, ceil(size(zTraces, 1) * numShifts * numel(validUnitInds) / shiftBatchElementTarget));
 batchSize = ceil(numel(validUnitInds) / batches);
 fprintf('[PROGRESS] shift test: numShifts=%d validUnitInds=%d batches=%d batchSize=%d\n', numShifts, numel(validUnitInds), batches, batchSize);
 
@@ -793,7 +894,7 @@ parfor b = 1:batches
                 for iCell = 1:length(indNeurons)
                     localCellID = indNeurons(iCell);
                     tr = shiftedTraces(:, :, localCellID);
-                    B = localFitModel(A, padarray(tr, nRegRows, 'post'), useL1, l1Lambdas(lamL1));
+                    B = localFitModel(A, padarray(tr, nRegRows, 'post'), useL1, l1Lambdas(lamL1), opts);
                     pred = stim * B(1:nStimPred, :);
                     ev_shift_batch(localCellID, :) = 1 - ...
                         sum((tr - pred) .^ 2, 1) ./ ...
@@ -930,10 +1031,8 @@ results.evRFOnly = ev;
 results.evShiftRFOnly = ev_shift;
 results.goodRFs_peakToNoise = goodRFs;
 results.minPeak_shift = minPeak_shift;
-results.requestedModality = opts.requestedModality;
-results.selectedModality = selectedModality;
+results.modality = modality;
 results.L1 = useL1;
-results.modalitySelection = opts.selectionInfo;
 results.subject = subject;
 results.date = date;
 results.session = session;
@@ -953,7 +1052,7 @@ results.tracesPreprocessed_roiIndex0 = roiIndex0(:);
 results.tracesPreprocessed_roiIndexMatlab = roiIndexMatlab(:);
 results.preprocessing = preprocessing;
 results.preprocessing.useRunningRegressor = useRunningRegressor;
-if strcmp(selectedModality, 'traces')
+if strcmp(modality, 'traces')
     results.neuropilCorrection = neuropilCorrection;
 end
 if useRunningRegressor
@@ -963,13 +1062,9 @@ else
 end
 metadata = struct();
 metadata.object = '_FANCi_rf';
-metadata.requestedModality = opts.requestedModality;
-metadata.selectedModality = selectedModality;
+metadata.modality = modality;
 metadata.runningRegressor = useRunningRegressor;
 metadata.L1 = useL1;
-metadata.modalitySelectionUsedL1 = false;
-metadata.modalitySelectionRule = 'L1 is never used during modality=best dry-run comparisons.';
-metadata.modalitySelection = opts.selectionInfo;
 metadata.stimulusCrop = stimulusCrop;
 metadata.sourceFunction = mfilename;
 metadata.resultMatFile = rfResultFile;
@@ -977,12 +1072,12 @@ metadata.resultMatFile = rfResultFile;
 if opts.saveResults
     save(rfResultFile, 'results', 'db', '-v7.3');
     localWriteJson(fullfile(folder.results, '_FANCi_rf.analysisMetadata.json'), metadata);
-    localWriteJson(fullfile(folder.results, '_FANCi_rf.selectedModality.json'), selectedModality);
+    localWriteJson(fullfile(folder.results, '_FANCi_rf.modality.json'), modality);
     localWriteJson(fullfile(folder.results, '_FANCi_rf.usedL1.json'), useL1);
     fprintf('Saved RF results %s to %s\n', modelLabel, rfResultFile);
 else
     rfResultFile = '';
-    fprintf('[PROGRESS] Dry-run result not saved for %s modality=%s.\n', fovName, selectedModality);
+    fprintf('[PROGRESS] Result saving disabled for %s modality=%s.\n', fovName, modality);
 end
 fprintf('[PROGRESS] Summary %s: ROIs=%d validUnits=%d validRF=%d goodRFs=%d maxEVmax=%.6g peakNoiseMax=%.6g\n', ...
     fovName, size(caData.traces, 2), sum(validUnits), numel(validRF), numel(goodRFs), max(maxEV, [], 'omitnan'), max(peakNoiseRatio, [], 'omitnan'));
@@ -1018,8 +1113,7 @@ summary.subject = string(subject);
 summary.date = string(date);
 summary.session = string(session);
 summary.fov = string(fovName);
-summary.requestedModality = string(opts.requestedModality);
-summary.selectedModality = string(selectedModality);
+summary.modality = string(modality);
 summary.runningRegressor = useRunningRegressor;
 summary.L1 = useL1;
 summary.nROIs = size(caData.traces, 2);
@@ -1030,7 +1124,8 @@ summary.resultFile = string(rfResultFile);
 end
 
 
-function [calcium, caData, roiTypes, curatedMask, roiIndexMatlab, roiIndex0, preprocessing, neuropilCorrection] = localPrepareCalcium(fov, modality, verbose)
+function [calcium, caData, roiTypes, curatedMask, roiIndexMatlab, roiIndex0, preprocessing, neuropilCorrection] = localPrepareCalcium(fov, modality, opts)
+verbose = opts.verbose;
 calcium = struct();
 calcium.alfFolder = char(string(fov.path));
 calcium.timestamps = fov.times(:);
@@ -1070,7 +1165,7 @@ switch modality
         roiIndex0 = roiIndexMatlab - 1;
         rawCurated = calcium.raw(:, curatedMask);
         neuropilCurated = calcium.neuropil(:, curatedMask);
-        sigmaSamples = 2;
+        sigmaSamples = opts.neuropilSmoothSigmaSamples;
         rawCurated = smoothGaussianSamples(rawCurated, sigmaSamples);
         neuropilCurated = smoothGaussianSamples(neuropilCurated, sigmaSamples);
         fprintf('[PROGRESS] Running LFR neuropil correction for %d curated ROIs after Gaussian smoothing sigma=%g samples.\n', ...
@@ -1086,7 +1181,7 @@ switch modality
         preprocessing.sourceDataset = 'mpci.ROIActivityF.npy + mpci.ROINeuropilActivityF.npy';
         preprocessing.neuropilCorrection = 's2pUtils.estimateNeuropil_LFR';
         preprocessing.description = ['tracesPreprocessed contains curated LFR neuropil-corrected traces after ', ...
-            'Gaussian smoothing sigma=2 samples, crop, interp1 onto modelTimes, z-scoring, and model-row cleanup. ', ...
+            sprintf('Gaussian smoothing sigma=%.6g samples, crop, interp1 onto modelTimes, z-scoring, and model-row cleanup. ', sigmaSamples), ...
             'No alignSampling, removeDecay, or stimulus-frame smoothing was applied.'];
 
     otherwise
@@ -1105,7 +1200,16 @@ end
 function stimulusCrop = localEmptyStimulusCrop()
 stimulusCrop = struct();
 stimulusCrop.enabled = false;
+stimulusCrop.belowEnabled = false;
+stimulusCrop.belowDeg = NaN;
+stimulusCrop.aboveEnabled = false;
+stimulusCrop.aboveDeg = NaN;
 stimulusCrop.thresholdDeg = NaN;
+stimulusCrop.thresholdBelowDeg = NaN;
+stimulusCrop.thresholdAboveDeg = NaN;
+stimulusCrop.azimuthCropAngleDeg = NaN;
+stimulusCrop.rightHemisphere = false;
+stimulusCrop.fovKey = '';
 stimulusCrop.edgesOriginal = [];
 stimulusCrop.edgesCropped = [];
 stimulusCrop.nColsOriginal = NaN;
@@ -1114,10 +1218,17 @@ stimulusCrop.keptColumns = [];
 stimulusCrop.keptAzimuthCentersDeg = [];
 end
 
-function [stimMatrix, edges, stimulusCrop] = localCropStimulusAzimuthBelow(stimMatrix, edges, thresholdDeg)
+function [stimMatrix, edges, stimulusCrop] = localCropStimulusAzimuthRange( ...
+    stimMatrix, edges, belowEnabled, belowDeg, aboveEnabled, aboveDeg)
 stimulusCrop = localEmptyStimulusCrop();
 stimulusCrop.enabled = true;
-stimulusCrop.thresholdDeg = thresholdDeg;
+stimulusCrop.belowEnabled = logical(belowEnabled);
+stimulusCrop.belowDeg = belowDeg;
+stimulusCrop.aboveEnabled = logical(aboveEnabled);
+stimulusCrop.aboveDeg = aboveDeg;
+stimulusCrop.thresholdDeg = belowDeg;
+stimulusCrop.thresholdBelowDeg = belowDeg;
+stimulusCrop.thresholdAboveDeg = aboveDeg;
 stimulusCrop.edgesOriginal = edges;
 stimulusCrop.nColsOriginal = size(stimMatrix, 3);
 
@@ -1129,14 +1240,32 @@ if size(stimMatrix, 3) < 1
     error('ALF_main_analyse_RFs:EmptyStimulusColumns', ...
         'Stimulus movie has no azimuth columns to crop.');
 end
+if ~belowEnabled && ~aboveEnabled
+    stimulusCrop.enabled = false;
+    stimulusCrop.edgesCropped = edges;
+    stimulusCrop.nColsKept = size(stimMatrix, 3);
+    stimulusCrop.keptColumns = 1:size(stimMatrix, 3);
+    return
+end
+if belowEnabled && aboveEnabled && belowDeg > aboveDeg
+    error('ALF_main_analyse_RFs:BadAzimuthCropRange', ...
+        'Azimuth crop lower threshold %.6g deg is greater than upper threshold %.6g deg.', ...
+        belowDeg, aboveDeg);
+end
 
 azimuthEdges = linspace(edges(1), edges(2), size(stimMatrix, 3) + 1);
 azimuthCenters = azimuthEdges(1:end-1) + diff(azimuthEdges) ./ 2;
-keepCols = azimuthCenters >= thresholdDeg;
+keepCols = true(size(azimuthCenters));
+if belowEnabled
+    keepCols = keepCols & azimuthCenters >= belowDeg;
+end
+if aboveEnabled
+    keepCols = keepCols & azimuthCenters <= aboveDeg;
+end
 if ~any(keepCols)
     error('ALF_main_analyse_RFs:AzimuthCropRemovedAllColumns', ...
-        'Azimuth crop threshold %.6g deg removed all %d stimulus columns.', ...
-        thresholdDeg, size(stimMatrix, 3));
+        'Azimuth crop range belowEnabled=%d belowDeg=%.6g aboveEnabled=%d aboveDeg=%.6g removed all %d stimulus columns.', ...
+        belowEnabled, belowDeg, aboveEnabled, aboveDeg, size(stimMatrix, 3));
 end
 
 keptColIdx = find(keepCols);
@@ -1150,10 +1279,18 @@ stimulusCrop.keptColumns = keptColIdx(:).';
 stimulusCrop.keptAzimuthCentersDeg = azimuthCenters(keepCols);
 end
 
-function B = localFitModel(A, Y, useL1, lambdaL1)
+function B = localFitModel(A, Y, useL1, lambdaL1, opts)
 if useL1
-    B = localFitL1(A, Y, lambdaL1);
+    B = localFitL1(A, Y, lambdaL1, opts);
 else
+    B = localFitRidgeGpu(A, Y);
+end
+end
+
+function B = localFitRidgeGpu(A, Y)
+try
+    B = gather(gpuArray(A) \ gpuArray(Y));
+catch
     B = A \ Y;
 end
 end
@@ -1163,7 +1300,7 @@ fid = fopen(path, 'w');
 if fid < 0
     error('ALF_main_analyse_RFs:JsonWriteFailed', 'Could not write %s', path);
 end
-cleanup = onCleanup(@() fclose(fid)); %#ok<NASGU>
+cleanup = onCleanup(@() fclose(fid));
 fwrite(fid, jsonencode(value), 'char');
 end
 
@@ -1200,7 +1337,7 @@ tracesOut = smoothNumerator ./ smoothDenominator;
 tracesOut(smoothDenominator == 0) = NaN;
 end
 
-function B = localFitL1(A, Y, lambdaL1)
+function B = localFitL1(A, Y, lambdaL1, opts)
 % localFitL1 Fit L1-regularized coefficients with the existing smoothness rows.
 %
 % A is already augmented with the real design rows plus smoothness-L2 rows.
@@ -1239,7 +1376,7 @@ end
 
 goodA = all(isfinite(A), 2);
 if all(goodA) && all(isfinite(Y(:)))
-    B = localFistaL1NoIntercept(A, Y, lambdaL1);
+    B = localFistaL1NoIntercept(A, Y, lambdaL1, opts);
     return
 end
 
@@ -1248,12 +1385,12 @@ for iUnit = 1:nUnits
     if sum(goodRows) == 0
         continue
     end
-    B(:, iUnit) = localFistaL1NoIntercept(A(goodRows, :), Y(goodRows, iUnit), lambdaL1);
+    B(:, iUnit) = localFistaL1NoIntercept(A(goodRows, :), Y(goodRows, iUnit), lambdaL1, opts);
 end
 end
 
 
-function B = localFistaL1NoIntercept(A, Y, lambdaL1)
+function B = localFistaL1NoIntercept(A, Y, lambdaL1, opts)
 % localFistaL1NoIntercept Proximal-gradient solver for squared loss + L1.
 
 nRows = size(A, 1);
@@ -1274,10 +1411,12 @@ end
 step = 1 ./ L;
 Z = B;
 t = 1;
-maxIter = 500;
-relTol = 1e-4;
+maxIter = opts.fistaMaxIter;
+relTol = opts.fistaRelTol;
 
-for iter = 1:maxIter %#ok<NASGU>
+iter = 0;
+while iter < maxIter
+    iter = iter + 1;
     Bprev = B;
     grad = AtA * Z - AtY;
     B = localSoftThreshold(Z - step .* grad, lambdaL1 .* step);

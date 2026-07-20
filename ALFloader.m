@@ -7,12 +7,14 @@ function ALF = ALFloader(ALFroot, sessions)
 %
 % Inputs
 %   ALFroot  Root folder organized as subject/date/session/alf/...
-%   sessions Optional table with variables: subject, date, session. When
-%            omitted or empty, all valid sessions under ALFroot are loaded.
+%   sessions Optional struct array with string scalar fields subject, date,
+%            and session. Legacy tables with variables subject, date, and
+%            session are also accepted. When omitted, all valid sessions under
+%            ALFroot are loaded.
 %
 % Output
-%   ALF(i) is one session. If a sessions table is provided, ALF(i) matches
-%   sessions(i,:). No global ID tables and no calcium block table are created.
+%   ALF(i) is one session. If sessions is provided, ALF(i) matches
+%   sessions(i). No global ID tables and no calcium block table are created.
 %
 % Common access
 %   ALF(i).ALFroot
@@ -39,21 +41,21 @@ if readNPYPath ~= ""
     fprintf('[ALFloader] Added readNPY path: %s\n', readNPYPath);
 end
 
-if nargin < 2 || isempty(sessions)
+if nargin < 2 || (isnumeric(sessions) && isempty(sessions))
     sessions = localDiscoverSessions(ALFroot);
-    fprintf('[ALFloader] Discovered %d session(s) under %s\n', height(sessions), ALFroot);
+    fprintf('[ALFloader] Discovered %d session(s) under %s\n', numel(sessions), ALFroot);
 else
-    sessions = localValidateSessionsTable(sessions);
-    fprintf('[ALFloader] Loading %d provided session(s) from %s\n', height(sessions), ALFroot);
+    sessions = localNormalizeSessions(sessions);
+    fprintf('[ALFloader] Loading %d provided session(s) from %s\n', numel(sessions), ALFroot);
 end
 
-nSessions = height(sessions);
+nSessions = numel(sessions);
 ALF = repmat(localEmptySession(), nSessions, 1);
 
 for iSession = 1:nSessions
-    subject = string(sessions.subject(iSession));
-    dateValue = string(sessions.date(iSession));
-    sessionValue = string(sessions.session(iSession));
+    subject = sessions(iSession).subject;
+    dateValue = sessions(iSession).date;
+    sessionValue = sessions(iSession).session;
 
     sessionPath = fullfile(ALFroot, char(subject), char(dateValue), char(sessionValue));
     alfPath = fullfile(sessionPath, 'alf');
@@ -262,20 +264,62 @@ else
 end
 end
 
-function sessions = localValidateSessionsTable(sessions)
-if ~istable(sessions)
-    error('ALFloader:BadSessions', 'sessions must be a table with variables subject, date, session.');
-end
+function sessions = localNormalizeSessions(sessions)
 required = {'subject', 'date', 'session'};
+
+if istable(sessions)
+    sessions = localSessionsFromTable(sessions, required);
+elseif isstruct(sessions)
+    sessions = localSessionsFromStruct(sessions, required);
+else
+    error('ALFloader:BadSessions', ...
+        'sessions must be a struct array or legacy table with subject, date, and session.');
+end
+end
+
+function sessions = localSessionsFromTable(sessionTable, required)
 for i = 1:numel(required)
-    if ~ismember(required{i}, sessions.Properties.VariableNames)
+    if ~ismember(required{i}, sessionTable.Properties.VariableNames)
         error('ALFloader:BadSessions', 'sessions is missing required variable: %s', required{i});
     end
 end
-sessions = sessions(:, required);
-sessions.subject = string(sessions.subject);
-sessions.date = string(sessions.date);
-sessions.session = string(sessions.session);
+
+nSessions = height(sessionTable);
+sessions = localEmptySessionStructArray(nSessions);
+for iSession = 1:nSessions
+    for iField = 1:numel(required)
+        fieldName = required{iField};
+        sessions(iSession).(fieldName) = localSessionStringScalar( ...
+            sessionTable.(fieldName)(iSession), fieldName, iSession);
+    end
+end
+end
+
+function sessions = localSessionsFromStruct(sessionStruct, required)
+for i = 1:numel(required)
+    if ~isfield(sessionStruct, required{i})
+        error('ALFloader:BadSessions', 'sessions is missing required field: %s', required{i});
+    end
+end
+
+sessionStruct = sessionStruct(:);
+nSessions = numel(sessionStruct);
+sessions = localEmptySessionStructArray(nSessions);
+for iSession = 1:nSessions
+    for iField = 1:numel(required)
+        fieldName = required{iField};
+        sessions(iSession).(fieldName) = localSessionStringScalar( ...
+            sessionStruct(iSession).(fieldName), fieldName, iSession);
+    end
+end
+end
+
+function value = localSessionStringScalar(value, fieldName, iSession)
+value = string(value);
+if ~isscalar(value)
+    error('ALFloader:BadSessions', ...
+        'sessions(%d).%s must be a string scalar.', iSession, fieldName);
+end
 end
 
 function sessions = localDiscoverSessions(ALFroot)
@@ -302,8 +346,29 @@ for iSubject = 1:numel(subjectDirs)
     end
 end
 
-sessions = table(subjects, dates, sessionValues, ...
+sessions = localSessionStructArray(subjects, dates, sessionValues);
+end
+
+function sessions = localSessionStructArray(subjects, dates, sessionValues)
+if isempty(subjects)
+    sessions = localEmptySessionStructArray();
+    return
+end
+
+sessionTable = table(subjects(:), dates(:), sessionValues(:), ...
     'VariableNames', {'subject', 'date', 'session'});
+sessions = localSessionsFromTable(sessionTable, {'subject', 'date', 'session'});
+end
+
+function sessions = localEmptySessionStructArray(nSessions)
+if nargin < 1
+    nSessions = 0;
+end
+
+sessions = repmat(struct( ...
+    'subject', string.empty(0, 0), ...
+    'date', string.empty(0, 0), ...
+    'session', string.empty(0, 0)), nSessions, 1);
 end
 
 function names = localSubdirs(folder)

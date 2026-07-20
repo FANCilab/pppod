@@ -64,21 +64,12 @@ except Exception:  # pragma: no cover - only used when h5py is absent on user ma
     h5py = None
 
 try:
-    from pycolormap_2d import (
-        ColorMap2DBremm,
-        ColorMap2DCubeDiagonal,
-        ColorMap2DSchumann,
-        ColorMap2DSteiger,
-        ColorMap2DTeuling2,
-        ColorMap2DZiegler,
-    )
-except Exception:  # pragma: no cover - optional plotting dependency on user machine
-    ColorMap2DBremm = None
-    ColorMap2DCubeDiagonal = None
-    ColorMap2DSchumann = None
-    ColorMap2DSteiger = None
-    ColorMap2DTeuling2 = None
-    ColorMap2DZiegler = None
+    from pycolorbar.bivariate import BivariateColormap
+except Exception:  # pragma: no cover - pycolorbar version compatibility
+    try:
+        from pycolorbar.bivariate.cmap import BivariateColormap
+    except Exception:  # pragma: no cover - optional plotting dependency on user machine
+        BivariateColormap = None
 
 
 # =============================================================================
@@ -86,10 +77,10 @@ except Exception:  # pragma: no cover - optional plotting dependency on user mac
 # =============================================================================
 
 PIPELINE_ROOT = Path(r"D:\Pipeline")
-RESULTS_ROOT = PIPELINE_ROOT / "Results"
-PLOTS_ROOT = PIPELINE_ROOT / "Plots"
+RESULTS_ROOT = PIPELINE_ROOT / "MixedResults"
+PLOTS_ROOT = PIPELINE_ROOT / "MixedPlots"
 # Plot only this group. Set to None to plot all hardcoded groups.
-SELECTED_GROUP: str | None = "groupA" 
+SELECTED_GROUP: str | None = None
 REMOTE_2P_ROOT = Path(r"\\10.233.25.135\FANCiNAS1\Data\2P")
 # Set to None to process every FOV_* found under the ALF session.
 FOV_NAMES: list[str] | None = None
@@ -114,16 +105,16 @@ SUBJECT_GROUP = {
 MIN_EV = 0.01
 MAX_P_VALUE = 0.05
 MIN_PEAK_TO_NOISE = 7.7
-MAX_NEURON_RF_PLOTS: int | None = None  # None = plot all significant RF neurons
+MAX_NEURON_RF_PLOTS: int | None = 12  # None = plot all significant RF neurons
 AGGREGATE_EV_X_LIMITS = (0.0, 0.3)
-PLOT_SELECTED_GOOD_RF_MAPS_ONLY = False
+PLOT_SELECTED_GOOD_RF_MAPS_ONLY = True
 SELECTED_GOOD_RF_MAPS_PER_GROUP = 12
 SELECTED_GOOD_RF_EDGE_MARGIN_FRACTION = 0.08
 SELECTED_GOOD_RF_EDGE_MARGIN_DEG = 5.0
 SELECTED_GOOD_RF_COLLECTION_FOLDER = "Selected_good_RF_maps"
 
 MAKE_GAUSSIAN_COVERAGE = True
-MAKE_PER_NEURON_RF_MAPS = True
+MAKE_PER_NEURON_RF_MAPS = False
 MAKE_FOV_OVERLAYS = True
 MAKE_NEUTRAL_ROI_OVERLAYS = True
 MAKE_SHIFT_EV_HISTOGRAM = True
@@ -136,10 +127,16 @@ MAKE_COMBINED_FOV_OVERLAYS = True
 # Trace panel downsampling for very dense plots. 1 keeps every point.
 TRACE_PLOT_STRIDE = 1
 
-# pycolormap-2d is used for RF-center colors in the FOV overlay plots and
-# their 2D color legend. Install with: pip install pycolormap-2d
-PYCOLORMAP_2D_NAME = "Bremm"
-PYCOLORMAP_2D_WHEEL_RESOLUTION = 301
+# pycolorbar is used for RF-center colors in the FOV overlay plots and their
+# 2D color legend. Install with: pip install pycolorbar
+PYCOLORBAR_BIVARIATE_CMAP_NAME = "teuling.GRMB"
+PYCOLORBAR_TEULING_DIAGONAL_TILT = 0.37
+PYCOLORBAR_TEULING_OFFDIAG_TILT = 1.0
+BIVARIATE_CMAP_WHEEL_RESOLUTION = 301
+# FOV overlay 2D pycolorbar plots use this azimuth plotting/normalization range
+# for the color map and color wheel only. Set to None to use the RF result edges.
+# This does not modify the underlying RF-center data.
+FOV_OVERLAY_BIVARIATE_AZIMUTH_LIMITS: tuple[float, float] | None = (-10.0, 135.0)
 
 
 # =============================================================================
@@ -191,6 +188,7 @@ RF_PER_NEURON_CMAP = LinearSegmentedColormap.from_list(
 COMBINED_FOV_GAP_PIXELS = 0
 COMBINED_CELL_ROI_FILLED_ALPHA = 0.5
 COMBINED_CELL_ROI_CONTOUR_LINEWIDTH = 0.7
+ROI_CONTOUR_OVERLAY_DPI = 300
 
 
 # =============================================================================
@@ -2348,8 +2346,12 @@ def plot_rf_roi_overlay(
     edges = get_edges(result)
     azimuth_limits = tuple(np.sort(edges[:2]))
     elevation_limits = tuple(np.sort(edges[2:4]))
+    bivariate_azimuth_limits, bivariate_elevation_limits = fov_overlay_bivariate_plot_limits(
+        azimuth_limits,
+        elevation_limits,
+    )
 
-    rf_colormap = make_pycolormap_2d(azimuth_limits, elevation_limits)
+    rf_colormap = make_rf_bivariate_colormap(bivariate_azimuth_limits, bivariate_elevation_limits)
 
     fig = plt.figure(figsize=(11.5, 8.5), constrained_layout=False)
     ax_fov = fig.add_axes([0.06, 0.07, 0.60, 0.82])
@@ -2366,19 +2368,19 @@ def plot_rf_roi_overlay(
         elevation=elevation,
         significant=significant,
         peak_pass=peak_pass,
-        azimuth_limits=azimuth_limits,
-        elevation_limits=elevation_limits,
+        azimuth_limits=bivariate_azimuth_limits,
+        elevation_limits=bivariate_elevation_limits,
         rf_colormap=rf_colormap,
     )
     ax_fov.set_title(
-        f"{fov_name} FOV overlay: pycolormap-2d RF center color ({int(significant.sum())} significant, {int(peak_pass.sum())} P/N pass)",
+        f"{fov_name} FOV overlay: pycolorbar RF center color ({int(significant.sum())} significant, {int(peak_pass.sum())} P/N pass)",
         fontsize=15,
     )
     ax_fov.set_axis_off()
     plot_2d_colorwheel(
         ax_wheel,
-        azimuth_limits,
-        elevation_limits,
+        bivariate_azimuth_limits,
+        bivariate_elevation_limits,
         rf_colormap=rf_colormap,
         azimuth=azimuth,
         elevation=elevation,
@@ -2387,10 +2389,51 @@ def plot_rf_roi_overlay(
     )
     fig.suptitle(
         f"{subject} {date} session {session} {fov_name}: significant RF ROIs on Suite2p FOV | "
-        f"pycolormap-2d={PYCOLORMAP_2D_NAME}; filled ROIs = P/N > {min_peak_to_noise:g}; contours = significant only",
+        f"pycolorbar={PYCOLORBAR_BIVARIATE_CMAP_NAME}; filled ROIs = P/N > {min_peak_to_noise:g}; contours = significant only",
         fontsize=17,
     )
     save_figure(fig, output_dir / f"{fov_name}_significant_ROIs_on_FOV_2D_colorwheel", dpi=220)
+
+    fig = plt.figure(figsize=(11.5, 8.5), constrained_layout=False)
+    ax_fov = fig.add_axes([0.06, 0.07, 0.60, 0.82])
+    ax_wheel = fig.add_axes([0.705, 0.425, 0.245, 0.185])
+
+    fov_artist = ax_fov.imshow(fov, cmap="gray", origin="upper")
+    fov_artist.set_rasterized(True)
+    draw_rf_roi_masks(
+        ax=ax_fov,
+        stat=stat,
+        image_shape=fov.shape,
+        source_roi_indices=roi_indices,
+        azimuth=azimuth,
+        elevation=elevation,
+        significant=peak_pass,
+        peak_pass=peak_pass,
+        azimuth_limits=bivariate_azimuth_limits,
+        elevation_limits=bivariate_elevation_limits,
+        rf_colormap=rf_colormap,
+    )
+    ax_fov.set_title(
+        f"{fov_name} FOV overlay: pycolorbar RF center color, good RFs only (n={int(peak_pass.sum())})",
+        fontsize=15,
+    )
+    ax_fov.set_axis_off()
+    plot_2d_colorwheel(
+        ax_wheel,
+        bivariate_azimuth_limits,
+        bivariate_elevation_limits,
+        rf_colormap=rf_colormap,
+        azimuth=azimuth,
+        elevation=elevation,
+        significant=peak_pass,
+        peak_pass=peak_pass,
+    )
+    fig.suptitle(
+        f"{subject} {date} session {session} {fov_name}: good RF ROIs on Suite2p FOV | "
+        f"pycolorbar={PYCOLORBAR_BIVARIATE_CMAP_NAME}; P/N > {min_peak_to_noise:g}",
+        fontsize=17,
+    )
+    save_figure(fig, output_dir / f"{fov_name}_good_RFs_on_FOV_2D_colorwheel", dpi=220)
 
     plot_scalar_rf_roi_overlay(
         fov=fov,
@@ -2453,7 +2496,7 @@ def plot_rf_roi_overlay(
             }
         )
     write_metadata(rows, output_dir / f"{fov_name}_significant_roi_fov_overlay_metadata.csv")
-    return 3
+    return 4
 # =============================================================================
 # Combined session-level plots across all FOVs. Existing per-FOV plots are left
 # unchanged; these outputs are written under plots_session / "combined".
@@ -3215,25 +3258,35 @@ def plot_combined_cell_roi_overlay(
             }
         )
 
-    def render_cell_roi_overlay(*, mode: str, output_name: str) -> None:
-        fig_width = max(12.0, min(22.0, mosaic.shape[1] / max(1, mosaic.shape[0]) * 9.0))
+    def render_cell_roi_overlay(
+        *,
+        mode: str,
+        output_name: str,
+        mosaic_image: np.ndarray,
+        roi_offsets: list,
+        shapes: list[tuple[int, int]],
+        layout_label: str,
+        draw_separators: bool,
+    ) -> None:
+        fig_width = max(12.0, min(22.0, mosaic_image.shape[1] / max(1, mosaic_image.shape[0]) * 9.0))
         fig, ax = plt.subplots(figsize=(fig_width, 9.0), constrained_layout=True)
-        fov_artist = ax.imshow(mosaic, cmap="gray", origin="upper", vmin=0.0, vmax=1.0)
+        fov_artist = ax.imshow(mosaic_image, cmap="gray", origin="upper", vmin=0.0, vmax=1.0)
         fov_artist.set_rasterized(True)
         ax.set_axis_off()
 
         if mode == "filled":
             roi_overlay = combined_cell_roi_rgba_overlay(
                 payloads,
-                offsets,
-                mosaic_shape=mosaic.shape,
+                roi_offsets,
+                mosaic_shape=mosaic_image.shape,
                 color="#00ff00",
                 alpha=COMBINED_CELL_ROI_FILLED_ALPHA,
             )
             overlay_artist = ax.imshow(roi_overlay, origin="upper", interpolation="nearest", zorder=8)
             overlay_artist.set_rasterized(True)
 
-        for payload, offset_x, shape in zip(payloads, offsets, panel_shapes):
+        for payload, offset, shape in zip(payloads, roi_offsets, shapes):
+            offset_x, offset_y = offset_xy(offset)
             fov_name = payload["fov_name"]
             cell_indices = payload["cell_indices"]
             stat = payload["stat"]
@@ -3245,6 +3298,7 @@ def plot_combined_cell_roi_overlay(
                         stat,
                         int(roi_idx),
                         int(offset_x),
+                        int(offset_y),
                         "#00ff00",
                         linewidth=COMBINED_CELL_ROI_CONTOUR_LINEWIDTH,
                         zorder=8,
@@ -3253,16 +3307,17 @@ def plot_combined_cell_roi_overlay(
                 raise ValueError(f"Unknown combined cell ROI overlay mode: {mode}")
 
             ax.text(
-                float(offset_x + shape[1] / 2.0),
-                -5,
+                float(offset_x + shape[1] / 2.0) if draw_separators else float(offset_x + 8),
+                float(offset_y - 5) if draw_separators else float(offset_y + 8),
                 f"{fov_name}\n{cell_indices.size} cells",
                 ha="center",
-                va="bottom",
-                color="black",
+                va="bottom" if draw_separators else "top",
+                color="black" if draw_separators else "white",
                 fontsize=11,
                 clip_on=False,
+                bbox=None if draw_separators else {"facecolor": "black", "alpha": 0.55, "edgecolor": "none", "pad": 2},
             )
-            if offset_x > 0:
+            if draw_separators and offset_y == 0 and offset_x > 0:
                 ax.axvline(offset_x - 0.5, color="black", linewidth=1.0, alpha=0.5)
 
         mode_label = (
@@ -3272,22 +3327,63 @@ def plot_combined_cell_roi_overlay(
         )
         ax.set_title(
             f"{subject} {date} session {session}: combined Suite2p cell ROIs "
-            f"({total_cells} cells across {len(payloads)} FOVs) | {mode_label}",
+            f"({total_cells} cells across {len(payloads)} FOVs) | {layout_label}; {mode_label}",
             fontsize=16,
             pad=12,
         )
-        save_figure(fig, output_dir / output_name, dpi=220)
+        save_figure(fig, output_dir / output_name, dpi=ROI_CONTOUR_OVERLAY_DPI)
 
     render_cell_roi_overlay(
         mode="filled",
         output_name=f"combined_suite2p_cell_ROIs_on_concatenated_FOVs_filled_raster_alpha{int(round(COMBINED_CELL_ROI_FILLED_ALPHA * 100)):03d}",
+        mosaic_image=mosaic,
+        roi_offsets=offsets,
+        shapes=panel_shapes,
+        layout_label="horizontal concatenation",
+        draw_separators=True,
     )
     render_cell_roi_overlay(
         mode="contour",
         output_name="combined_suite2p_cell_ROIs_on_concatenated_FOVs_contours",
+        mosaic_image=mosaic,
+        roi_offsets=offsets,
+        shapes=panel_shapes,
+        layout_label="horizontal concatenation",
+        draw_separators=True,
     )
     write_metadata(metadata_rows, output_dir / "combined_suite2p_cell_roi_overlay_metadata.csv")
-    return 2
+
+    n_written = 2
+    try:
+        spatial_mosaic, spatial_offsets, spatial_shapes, spatial_metadata_rows = spatial_fov_image_mosaic(
+            payloads,
+            raw_suite2p_folder=raw_suite2p_folder,
+        )
+    except Exception as exc:
+        print(f"[WARN] Combined spatial Suite2p cell ROI overlays skipped: {exc}")
+    else:
+        render_cell_roi_overlay(
+            mode="filled",
+            output_name=f"combined_suite2p_cell_ROIs_on_spatial_FOVs_filled_raster_alpha{int(round(COMBINED_CELL_ROI_FILLED_ALPHA * 100)):03d}",
+            mosaic_image=spatial_mosaic,
+            roi_offsets=spatial_offsets,
+            shapes=spatial_shapes,
+            layout_label="spatial FOV layout",
+            draw_separators=False,
+        )
+        render_cell_roi_overlay(
+            mode="contour",
+            output_name="combined_suite2p_cell_ROIs_on_spatial_FOVs_contours",
+            mosaic_image=spatial_mosaic,
+            roi_offsets=spatial_offsets,
+            shapes=spatial_shapes,
+            layout_label="spatial FOV layout",
+            draw_separators=False,
+        )
+        write_metadata(spatial_metadata_rows, output_dir / "combined_suite2p_cell_roi_spatial_overlay_metadata.csv")
+        n_written += 2
+
+    return n_written
 
 
 def plot_combined_rf_roi_overlay(
@@ -3304,7 +3400,11 @@ def plot_combined_rf_roi_overlay(
 ) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     azimuth_limits, elevation_limits = combined_visual_limits(records)
-    rf_colormap = make_pycolormap_2d(azimuth_limits, elevation_limits)
+    bivariate_azimuth_limits, bivariate_elevation_limits = fov_overlay_bivariate_plot_limits(
+        azimuth_limits,
+        elevation_limits,
+    )
+    rf_colormap = make_rf_bivariate_colormap(bivariate_azimuth_limits, bivariate_elevation_limits)
 
     payloads: list[dict] = []
     metadata_rows: list[dict] = []
@@ -3376,8 +3476,8 @@ def plot_combined_rf_roi_overlay(
             elevation=payload["elevation"],
             significant=payload["significant"],
             peak_pass=payload["peak_pass"],
-            azimuth_limits=azimuth_limits,
-            elevation_limits=elevation_limits,
+            azimuth_limits=bivariate_azimuth_limits,
+            elevation_limits=bivariate_elevation_limits,
             rf_colormap=rf_colormap,
         )
         ax_fov.text(
@@ -3430,8 +3530,8 @@ def plot_combined_rf_roi_overlay(
 
     plot_2d_colorwheel(
         ax_wheel,
-        azimuth_limits,
-        elevation_limits,
+        bivariate_azimuth_limits,
+        bivariate_elevation_limits,
         rf_colormap=rf_colormap,
         azimuth=azimuth,
         elevation=elevation,
@@ -3447,6 +3547,65 @@ def plot_combined_rf_roi_overlay(
         fontsize=17,
     )
     save_figure(fig, output_dir / "combined_significant_ROIs_on_concatenated_FOVs_2D_colorwheel", dpi=220)
+
+    fig_width = max(12.0, min(22.0, mosaic.shape[1] / max(1, mosaic.shape[0]) * 9.0))
+    fig = plt.figure(figsize=(fig_width, 8.8), constrained_layout=False)
+    ax_fov = fig.add_axes([0.04, 0.06, 0.67, 0.84])
+    ax_wheel = fig.add_axes([0.76, 0.40, 0.20, 0.22])
+
+    fov_artist = ax_fov.imshow(mosaic, cmap="gray", origin="upper", vmin=0.0, vmax=1.0)
+    fov_artist.set_rasterized(True)
+    ax_fov.set_axis_off()
+
+    for payload, offset_x, shape in zip(payloads, offsets, panel_shapes):
+        fov_name = payload["fov_name"]
+        draw_combined_rf_roi_masks(
+            ax=ax_fov,
+            stat=payload["stat"],
+            x_offset=int(offset_x),
+            mosaic_shape=mosaic.shape,
+            source_roi_indices=payload["roi_indices"],
+            azimuth=payload["azimuth"],
+            elevation=payload["elevation"],
+            significant=payload["peak_pass"],
+            peak_pass=payload["peak_pass"],
+            azimuth_limits=bivariate_azimuth_limits,
+            elevation_limits=bivariate_elevation_limits,
+            rf_colormap=rf_colormap,
+        )
+        ax_fov.text(
+            float(offset_x + shape[1] / 2.0),
+            -5,
+            fov_name,
+            ha="center",
+            va="bottom",
+            color="black",
+            fontsize=11,
+            clip_on=False,
+        )
+        if offset_x > 0:
+            ax_fov.axvline(offset_x - 0.5, color="black", linewidth=1.0, alpha=0.5)
+
+    plot_2d_colorwheel(
+        ax_wheel,
+        bivariate_azimuth_limits,
+        bivariate_elevation_limits,
+        rf_colormap=rf_colormap,
+        azimuth=azimuth,
+        elevation=elevation,
+        significant=peak_pass,
+        peak_pass=peak_pass,
+    )
+    ax_fov.set_title(
+        f"Combined FOV overlay: concatenated Suite2p images | good RFs only (n={int(peak_pass.sum())})",
+        fontsize=15,
+    )
+    fig.suptitle(
+        f"{subject} {date} session {session}: all-FOV good RF ROI overlay | pycolorbar={PYCOLORBAR_BIVARIATE_CMAP_NAME}",
+        fontsize=17,
+    )
+    save_figure(fig, output_dir / "combined_good_RFs_on_concatenated_FOVs_2D_colorwheel", dpi=220)
+
     plot_combined_scalar_rf_roi_overlay(
         payloads=payloads,
         offsets=offsets,
@@ -3479,13 +3638,207 @@ def plot_combined_rf_roi_overlay(
         ),
         fov_title=f"Combined FOV overlay: Good RF azimuth, jet (n={int(peak_pass.sum())})",
     )
+
+    n_written = 4
+    try:
+        spatial_mosaic, spatial_offsets, spatial_panel_shapes, spatial_layout_rows = spatial_fov_image_mosaic(
+            payloads,
+            raw_suite2p_folder=raw_suite2p_folder,
+        )
+    except Exception as exc:
+        print(f"[WARN] Combined spatial RF/FOV overlay plots skipped: {exc}")
+    else:
+        spatial_roi_metadata_rows: list[dict] = []
+
+        fig_width = max(12.0, min(22.0, spatial_mosaic.shape[1] / max(1, spatial_mosaic.shape[0]) * 9.0))
+        fig = plt.figure(figsize=(fig_width, 8.8), constrained_layout=False)
+        ax_fov = fig.add_axes([0.04, 0.06, 0.67, 0.84])
+        ax_wheel = fig.add_axes([0.76, 0.40, 0.20, 0.22])
+
+        fov_artist = ax_fov.imshow(spatial_mosaic, cmap="gray", origin="upper", vmin=0.0, vmax=1.0)
+        fov_artist.set_rasterized(True)
+        ax_fov.set_axis_off()
+
+        for payload, offset, shape in zip(payloads, spatial_offsets, spatial_panel_shapes):
+            offset_x, offset_y = offset_xy(offset)
+            fov_name = payload["fov_name"]
+            draw_combined_rf_roi_masks(
+                ax=ax_fov,
+                stat=payload["stat"],
+                x_offset=int(offset_x),
+                y_offset=int(offset_y),
+                mosaic_shape=spatial_mosaic.shape,
+                source_roi_indices=payload["roi_indices"],
+                azimuth=payload["azimuth"],
+                elevation=payload["elevation"],
+                significant=payload["significant"],
+                peak_pass=payload["peak_pass"],
+                azimuth_limits=bivariate_azimuth_limits,
+                elevation_limits=bivariate_elevation_limits,
+                rf_colormap=rf_colormap,
+            )
+            ax_fov.text(
+                float(offset_x + 8),
+                float(offset_y + 8),
+                fov_name,
+                ha="left",
+                va="top",
+                color="white",
+                fontsize=11,
+                clip_on=False,
+                bbox={"facecolor": "black", "alpha": 0.55, "edgecolor": "none", "pad": 2},
+            )
+            for rf_idx in np.flatnonzero(payload["significant"]):
+                roi_idx = int(payload["roi_indices"][rf_idx])
+                if roi_idx < 0 or roi_idx >= len(payload["stat"]):
+                    continue
+                roi = stat_entry(payload["stat"][roi_idx])
+                y_med, x_med = roi_center(roi)
+                spatial_roi_metadata_rows.append(
+                    {
+                        "fov_name": fov_name,
+                        "plane_id": int(payload["plane_id"]),
+                        "rf_result_index_1based": int(rf_idx + 1),
+                        "suite2p_roi_index_0based": roi_idx,
+                        "suite2p_roi_index_matlab": roi_idx + 1,
+                        "x_med_spatial": float(x_med + offset_x),
+                        "y_med_spatial": float(y_med + offset_y),
+                        "x_med_local": float(x_med),
+                        "y_med_local": float(y_med),
+                        "azimuth_deg": float(payload["azimuth"][rf_idx]),
+                        "elevation_deg": float(payload["elevation"][rf_idx]),
+                        "azimuth_flipped": bool(payload.get("flip_azimuth", False)),
+                        "explained_variance": float(payload["ev"][rf_idx]),
+                        "p_value": float(payload["p_values"][rf_idx]),
+                        "peak_to_noise": float(payload["peak_to_noise"][rf_idx]),
+                        "passes_peak_to_noise": bool(payload["peak_pass"][rf_idx]),
+                    }
+                )
+
+        plot_2d_colorwheel(
+            ax_wheel,
+            bivariate_azimuth_limits,
+            bivariate_elevation_limits,
+            rf_colormap=rf_colormap,
+            azimuth=azimuth,
+            elevation=elevation,
+            significant=significant,
+            peak_pass=peak_pass,
+        )
+        ax_fov.set_title(
+            f"Combined FOV overlay: spatial Suite2p images | {int(significant.sum())} significant, {int(peak_pass.sum())} P/N pass",
+            fontsize=15,
+        )
+        fig.suptitle(
+            f"{subject} {date} session {session}: all-FOV RF ROI overlay in spatial layout | filled = good RF, open/contour = significant but P/N fail",
+            fontsize=17,
+        )
+        save_figure(fig, output_dir / "combined_significant_ROIs_on_spatial_FOVs_2D_colorwheel", dpi=220)
+
+        fig_width = max(12.0, min(22.0, spatial_mosaic.shape[1] / max(1, spatial_mosaic.shape[0]) * 9.0))
+        fig = plt.figure(figsize=(fig_width, 8.8), constrained_layout=False)
+        ax_fov = fig.add_axes([0.04, 0.06, 0.67, 0.84])
+        ax_wheel = fig.add_axes([0.76, 0.40, 0.20, 0.22])
+
+        fov_artist = ax_fov.imshow(spatial_mosaic, cmap="gray", origin="upper", vmin=0.0, vmax=1.0)
+        fov_artist.set_rasterized(True)
+        ax_fov.set_axis_off()
+
+        for payload, offset, shape in zip(payloads, spatial_offsets, spatial_panel_shapes):
+            offset_x, offset_y = offset_xy(offset)
+            fov_name = payload["fov_name"]
+            draw_combined_rf_roi_masks(
+                ax=ax_fov,
+                stat=payload["stat"],
+                x_offset=int(offset_x),
+                y_offset=int(offset_y),
+                mosaic_shape=spatial_mosaic.shape,
+                source_roi_indices=payload["roi_indices"],
+                azimuth=payload["azimuth"],
+                elevation=payload["elevation"],
+                significant=payload["peak_pass"],
+                peak_pass=payload["peak_pass"],
+                azimuth_limits=bivariate_azimuth_limits,
+                elevation_limits=bivariate_elevation_limits,
+                rf_colormap=rf_colormap,
+            )
+            ax_fov.text(
+                float(offset_x + 8),
+                float(offset_y + 8),
+                fov_name,
+                ha="left",
+                va="top",
+                color="white",
+                fontsize=11,
+                clip_on=False,
+                bbox={"facecolor": "black", "alpha": 0.55, "edgecolor": "none", "pad": 2},
+            )
+
+        plot_2d_colorwheel(
+            ax_wheel,
+            bivariate_azimuth_limits,
+            bivariate_elevation_limits,
+            rf_colormap=rf_colormap,
+            azimuth=azimuth,
+            elevation=elevation,
+            significant=peak_pass,
+            peak_pass=peak_pass,
+        )
+        ax_fov.set_title(
+            f"Combined FOV overlay: spatial Suite2p images | good RFs only (n={int(peak_pass.sum())})",
+            fontsize=15,
+        )
+        fig.suptitle(
+            f"{subject} {date} session {session}: all-FOV good RF ROI overlay in spatial layout | pycolorbar={PYCOLORBAR_BIVARIATE_CMAP_NAME}",
+            fontsize=17,
+        )
+        save_figure(fig, output_dir / "combined_good_RFs_on_spatial_FOVs_2D_colorwheel", dpi=220)
+
+        plot_combined_scalar_rf_roi_overlay(
+            payloads=payloads,
+            offsets=spatial_offsets,
+            panel_shapes=spatial_panel_shapes,
+            mosaic=spatial_mosaic,
+            value_key="elevation",
+            value_limits=good_value_limits(elevation, peak_pass, fallback=elevation_limits),
+            value_label="Gaussian elevation (deg)",
+            dimension_name="elevation",
+            output_base=output_dir / "combined_good_RFs_on_spatial_FOVs_elevation_jet",
+            title=(
+                f"{subject} {date} session {session}: combined Good RF ROIs on spatial Suite2p FOVs | "
+                f"elevation color; P/N > {min_peak_to_noise:g}"
+            ),
+            fov_title=f"Combined FOV overlay: spatial Good RF elevation, jet (n={int(peak_pass.sum())})",
+            draw_separators=False,
+        )
+        plot_combined_scalar_rf_roi_overlay(
+            payloads=payloads,
+            offsets=spatial_offsets,
+            panel_shapes=spatial_panel_shapes,
+            mosaic=spatial_mosaic,
+            value_key="azimuth",
+            value_limits=good_value_limits(azimuth, peak_pass, fallback=azimuth_limits),
+            value_label="Gaussian azimuth (deg)",
+            dimension_name="azimuth",
+            output_base=output_dir / "combined_good_RFs_on_spatial_FOVs_azimuth_jet",
+            title=(
+                f"{subject} {date} session {session}: combined Good RF ROIs on spatial Suite2p FOVs | "
+                f"azimuth color; P/N > {min_peak_to_noise:g}"
+            ),
+            fov_title=f"Combined FOV overlay: spatial Good RF azimuth, jet (n={int(peak_pass.sum())})",
+            draw_separators=False,
+        )
+        write_metadata(spatial_layout_rows, output_dir / "combined_fov_spatial_layout_metadata.csv")
+        write_metadata(spatial_roi_metadata_rows, output_dir / "combined_significant_roi_fov_spatial_overlay_metadata.csv")
+        n_written += 4
+
     write_metadata(metadata_rows, output_dir / "combined_significant_roi_fov_overlay_metadata.csv")
-    return 3
+    return n_written
 
 
 def combined_cell_roi_rgba_overlay(
     payloads: list[dict],
-    offsets: list[int],
+    offsets: list,
     *,
     mosaic_shape: tuple[int, int],
     color: str,
@@ -3503,13 +3856,14 @@ def combined_cell_roi_rgba_overlay(
     rgb = np.asarray(matplotlib.colors.to_rgb(color), dtype=np.float32)
     alpha = float(np.clip(alpha, 0.0, 1.0))
 
-    for payload, offset_x in zip(payloads, offsets):
+    for payload, offset in zip(payloads, offsets):
+        offset_x, offset_y = offset_xy(offset)
         stat = payload["stat"]
         for roi_idx in np.asarray(payload["cell_indices"], dtype=int):
             if roi_idx < 0 or roi_idx >= len(stat):
                 continue
             roi = stat_entry(stat[int(roi_idx)])
-            ypix = np.asarray(roi["ypix"], dtype=int)
+            ypix = np.asarray(roi["ypix"], dtype=int) + int(offset_y)
             xpix = np.asarray(roi["xpix"], dtype=int) + int(offset_x)
             valid = (ypix >= 0) & (ypix < height) & (xpix >= 0) & (xpix < width)
             if not np.any(valid):
@@ -3556,11 +3910,137 @@ def concatenate_fov_images(images: list[np.ndarray], *, gap_pixels: int) -> tupl
     return mosaic, offsets, shapes
 
 
+def spatial_fov_image_mosaic(
+    payloads: list[dict],
+    *,
+    raw_suite2p_folder: Path,
+) -> tuple[np.ndarray, list[tuple[int, int]], list[tuple[int, int]], list[dict]]:
+    combined_stat_path = raw_suite2p_folder / "combined" / "stat.npy"
+    if not combined_stat_path.exists():
+        raise FileNotFoundError(f"Spatial FOV layout requires combined Suite2p stat.npy: {combined_stat_path}")
+
+    combined_stat = np.load(combined_stat_path, allow_pickle=True)
+    combined_x, combined_y, combined_iplane = stat_centers_and_iplanes(combined_stat)
+    if not combined_x.size or not np.isfinite(combined_iplane).any():
+        raise ValueError(f"Spatial FOV layout requires finite iplane coordinates in {combined_stat_path}")
+
+    pieces: list[dict] = []
+    metadata_rows: list[dict] = []
+    for payload in payloads:
+        image = np.asarray(payload["fov"], dtype=float)
+        height, width = int(image.shape[0]), int(image.shape[1])
+        plane_id = int(payload["plane_id"])
+        plane_x, plane_y, _ = stat_centers_and_iplanes(payload["stat"])
+        mask = np.isfinite(combined_iplane) & (combined_iplane == float(plane_id))
+        this_combined_x = combined_x[mask]
+        this_combined_y = combined_y[mask]
+        n = min(this_combined_x.size, plane_x.size)
+        if n < 10:
+            raise ValueError(
+                f"Spatial FOV layout for {payload['fov_name']} needs at least 10 matched combined/stat ROIs; found {n}"
+            )
+
+        ddx = this_combined_x[:n] - plane_x[:n]
+        ddy = this_combined_y[:n] - plane_y[:n]
+        ddx = ddx[np.isfinite(ddx)]
+        ddy = ddy[np.isfinite(ddy)]
+        if not ddx.size or not ddy.size:
+            raise ValueError(f"Spatial FOV layout for {payload['fov_name']} has no finite combined/stat offsets")
+        dx = float(np.nanmedian(ddx))
+        dy = float(np.nanmedian(ddy))
+
+        pieces.append(
+            {
+                "payload": payload,
+                "image": image,
+                "x": float(dx),
+                "y": float(dy),
+                "width": width,
+                "height": height,
+                "source": "combined_stat_iplane",
+            }
+        )
+
+    min_x = min(0.0, min(piece["x"] for piece in pieces))
+    min_y = min(0.0, min(piece["y"] for piece in pieces))
+    shift_x = -min_x
+    shift_y = -min_y
+    mosaic_width = int(np.ceil(max(piece["x"] + shift_x + piece["width"] for piece in pieces)))
+    mosaic_height = int(np.ceil(max(piece["y"] + shift_y + piece["height"] for piece in pieces)))
+    mosaic = np.zeros((mosaic_height, mosaic_width), dtype=float)
+    offsets: list[tuple[int, int]] = []
+    shapes: list[tuple[int, int]] = []
+
+    for piece in pieces:
+        x0 = int(round(piece["x"] + shift_x))
+        y0 = int(round(piece["y"] + shift_y))
+        image = piece["image"]
+        height, width = int(piece["height"]), int(piece["width"])
+        mosaic[y0 : y0 + height, x0 : x0 + width] = np.maximum(
+            mosaic[y0 : y0 + height, x0 : x0 + width],
+            image,
+        )
+        offsets.append((x0, y0))
+        shapes.append((height, width))
+        metadata_rows.append(
+            {
+                "fov_name": piece["payload"]["fov_name"],
+                "plane_id": int(piece["payload"]["plane_id"]),
+                "x_offset_pixels": x0,
+                "y_offset_pixels": y0,
+                "raw_x_offset_pixels": float(piece["x"]),
+                "raw_y_offset_pixels": float(piece["y"]),
+                "fov_height_pixels": height,
+                "fov_width_pixels": width,
+                "offset_source": piece["source"],
+            }
+        )
+
+    return mosaic, offsets, shapes, metadata_rows
+
+
+def stat_centers_and_iplanes(stat: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    xs: list[float] = []
+    ys: list[float] = []
+    iplanes: list[float] = []
+    for entry in np.asarray(stat, dtype=object).ravel():
+        try:
+            roi = stat_entry(entry)
+        except Exception:
+            xs.append(np.nan)
+            ys.append(np.nan)
+            iplanes.append(np.nan)
+            continue
+
+        try:
+            y_med, x_med = roi_center(roi)
+        except Exception:
+            y_med, x_med = np.nan, np.nan
+        try:
+            iplane = float(np.asarray(roi.get("iplane", np.nan), dtype=float).squeeze())
+        except Exception:
+            iplane = np.nan
+        xs.append(float(x_med))
+        ys.append(float(y_med))
+        iplanes.append(float(iplane))
+    return np.asarray(xs, dtype=float), np.asarray(ys, dtype=float), np.asarray(iplanes, dtype=float)
+
+
+def offset_xy(offset) -> tuple[int, int]:
+    if isinstance(offset, (tuple, list, np.ndarray)):
+        if len(offset) >= 2:
+            return int(offset[0]), int(offset[1])
+        if len(offset) == 1:
+            return int(offset[0]), 0
+    return int(offset), 0
+
+
 def draw_combined_rf_roi_masks(
     *,
     ax,
     stat: np.ndarray,
     x_offset: int,
+    y_offset: int = 0,
     mosaic_shape: tuple[int, int],
     source_roi_indices: np.ndarray,
     azimuth: np.ndarray,
@@ -3578,6 +4058,7 @@ def draw_combined_rf_roi_masks(
             stat,
             int(source_roi_indices[rf_idx]),
             int(x_offset),
+            int(y_offset),
             rf_position_to_rgb(azimuth[rf_idx], elevation[rf_idx], azimuth_limits, elevation_limits, rf_colormap=rf_colormap),
             linewidth=NON_PEAK_CONTOUR_LINEWIDTH,
             zorder=7,
@@ -3593,6 +4074,7 @@ def draw_combined_rf_roi_masks(
         rf_colormap=rf_colormap,
         image_shape=mosaic_shape,
         x_offset=int(x_offset),
+        y_offset=int(y_offset),
         alpha=PEAK_ROI_ALPHA,
     )
     if np.any(roi_overlay[:, :, 3] > 0):
@@ -3603,7 +4085,7 @@ def draw_combined_rf_roi_masks(
 def plot_combined_scalar_rf_roi_overlay(
     *,
     payloads: list[dict],
-    offsets: list[int],
+    offsets: list,
     panel_shapes: list[tuple[int, int]],
     mosaic: np.ndarray,
     value_key: str,
@@ -3613,6 +4095,7 @@ def plot_combined_scalar_rf_roi_overlay(
     output_base: Path,
     title: str,
     fov_title: str,
+    draw_separators: bool = True,
 ) -> None:
     fig_width = max(12.0, min(22.0, mosaic.shape[1] / max(1, mosaic.shape[0]) * 9.0))
     fig = plt.figure(figsize=(fig_width, 8.8), constrained_layout=False)
@@ -3635,19 +4118,21 @@ def plot_combined_scalar_rf_roi_overlay(
         overlay_artist = ax_fov.imshow(roi_overlay, origin="upper", interpolation="nearest", zorder=9)
         overlay_artist.set_rasterized(True)
 
-    for payload, offset_x, shape in zip(payloads, offsets, panel_shapes):
+    for payload, offset, shape in zip(payloads, offsets, panel_shapes):
+        offset_x, offset_y = offset_xy(offset)
         fov_name = payload["fov_name"]
         ax_fov.text(
-            float(offset_x + shape[1] / 2.0),
-            -5,
+            float(offset_x + shape[1] / 2.0) if draw_separators else float(offset_x + 8),
+            float(offset_y - 5) if draw_separators else float(offset_y + 8),
             fov_name,
-            ha="center",
-            va="bottom",
-            color="black",
+            ha="center" if draw_separators else "left",
+            va="bottom" if draw_separators else "top",
+            color="black" if draw_separators else "white",
             fontsize=11,
             clip_on=False,
+            bbox=None if draw_separators else {"facecolor": "black", "alpha": 0.55, "edgecolor": "none", "pad": 2},
         )
-        if offset_x > 0:
+        if draw_separators and offset_y == 0 and offset_x > 0:
             ax_fov.axvline(offset_x - 0.5, color="black", linewidth=1.0, alpha=0.5)
 
     norm = scalar_value_norm(value_limits)
@@ -3664,7 +4149,7 @@ def plot_combined_scalar_rf_roi_overlay(
 def combined_scalar_roi_rgba_overlay(
     *,
     payloads: list[dict],
-    offsets: list[int],
+    offsets: list,
     value_key: str,
     value_limits: tuple[float, float],
     mosaic_shape: tuple[int, int],
@@ -3673,7 +4158,8 @@ def combined_scalar_roi_rgba_overlay(
     height, width = int(mosaic_shape[0]), int(mosaic_shape[1])
     overlay = np.zeros((height, width, 4), dtype=np.float32)
 
-    for payload, offset_x in zip(payloads, offsets):
+    for payload, offset in zip(payloads, offsets):
+        offset_x, offset_y = offset_xy(offset)
         fov_overlay = scalar_roi_rgba_overlay(
             stat=payload["stat"],
             source_roi_indices=payload["roi_indices"],
@@ -3682,6 +4168,7 @@ def combined_scalar_roi_rgba_overlay(
             value_limits=value_limits,
             image_shape=mosaic_shape,
             x_offset=int(offset_x),
+            y_offset=int(offset_y),
             alpha=alpha,
         )
         use_pixels = fov_overlay[:, :, 3] > 0
@@ -3690,11 +4177,26 @@ def combined_scalar_roi_rgba_overlay(
     return overlay
 
 
-def draw_single_roi_contour_offset(ax, stat: np.ndarray, roi_idx: int, x_offset: int, color, *, linewidth: float, zorder: int) -> None:
+def draw_single_roi_contour_offset(
+    ax,
+    stat: np.ndarray,
+    roi_idx: int,
+    x_offset: int,
+    y_offset_or_color,
+    color=None,
+    *,
+    linewidth: float,
+    zorder: int,
+) -> None:
+    if color is None:
+        y_offset = 0
+        color = y_offset_or_color
+    else:
+        y_offset = int(y_offset_or_color)
     if roi_idx >= len(stat) or roi_idx < 0:
         return
     roi = stat_entry(stat[roi_idx])
-    ypix = np.asarray(roi["ypix"], dtype=int)
+    ypix = np.asarray(roi["ypix"], dtype=int) + int(y_offset)
     xpix = np.asarray(roi["xpix"], dtype=int) + int(x_offset)
     if ypix.size == 0 or xpix.size == 0:
         return
@@ -3715,11 +4217,21 @@ def draw_single_roi_contour_offset(ax, stat: np.ndarray, roi_idx: int, x_offset:
     rasterize_contour_set(contour_set)
 
 
-def draw_single_roi_mask_offset(ax, stat: np.ndarray, roi_idx: int, x_offset: int, color, *, alpha: float, zorder: int) -> None:
+def draw_single_roi_mask_offset(
+    ax,
+    stat: np.ndarray,
+    roi_idx: int,
+    x_offset: int,
+    color,
+    *,
+    alpha: float,
+    zorder: int,
+    y_offset: int = 0,
+) -> None:
     if roi_idx >= len(stat) or roi_idx < 0:
         return
     roi = stat_entry(stat[roi_idx])
-    ypix = np.asarray(roi["ypix"], dtype=int)
+    ypix = np.asarray(roi["ypix"], dtype=int) + int(y_offset)
     xpix = np.asarray(roi["xpix"], dtype=int) + int(x_offset)
     artist = ax.scatter(xpix, ypix, s=ROI_MARKER_SIZE, c=[color], marker="s", linewidths=0, alpha=alpha, zorder=zorder)
     artist.set_rasterized(True)
@@ -3892,8 +4404,8 @@ def plot_2d_colorwheel(
     force_equal_aspect: bool = False,
     draw_zero_lines: bool = True,
 ) -> None:
-    azimuth_axis = np.linspace(azimuth_limits[0], azimuth_limits[1], PYCOLORMAP_2D_WHEEL_RESOLUTION)
-    elevation_axis = np.linspace(elevation_limits[0], elevation_limits[1], PYCOLORMAP_2D_WHEEL_RESOLUTION)
+    azimuth_axis = np.linspace(azimuth_limits[0], azimuth_limits[1], BIVARIATE_CMAP_WHEEL_RESOLUTION)
+    elevation_axis = np.linspace(elevation_limits[0], elevation_limits[1], BIVARIATE_CMAP_WHEEL_RESOLUTION)
     azimuth_grid, elevation_grid = np.meshgrid(azimuth_axis, elevation_axis)
     colorwheel = rf_position_to_rgb(
         azimuth_grid,
@@ -3956,50 +4468,65 @@ def plot_2d_colorwheel(
     ax.set_ylim(elevation_limits)
     ax.set_xlabel("Gaussian azimuth (deg)", fontsize=9, labelpad=2)
     ax.set_ylabel("Gaussian elevation (deg)", fontsize=9, labelpad=2)
-    ax.set_title(f"pycolormap-2d {PYCOLORMAP_2D_NAME}", fontsize=11, pad=5)
+    ax.set_title(f"pycolorbar {PYCOLORBAR_BIVARIATE_CMAP_NAME}", fontsize=11, pad=5)
     ax.tick_params(labelsize=8, pad=2)
     if force_equal_aspect:
         ax.set_aspect("equal", adjustable="box")
 
 
-def make_pycolormap_2d(
+def fov_overlay_bivariate_plot_limits(
+    azimuth_limits: tuple[float, float],
+    elevation_limits: tuple[float, float],
+) -> tuple[tuple[float, float], tuple[float, float]]:
+    plot_azimuth_limits = tuple(sorted((float(azimuth_limits[0]), float(azimuth_limits[1]))))
+    if FOV_OVERLAY_BIVARIATE_AZIMUTH_LIMITS is not None:
+        configured = tuple(sorted(float(value) for value in FOV_OVERLAY_BIVARIATE_AZIMUTH_LIMITS))
+        if len(configured) != 2 or not all(np.isfinite(configured)) or configured[0] == configured[1]:
+            raise ValueError(
+                "FOV_OVERLAY_BIVARIATE_AZIMUTH_LIMITS must be None or two finite, distinct azimuth values"
+            )
+        plot_azimuth_limits = configured
+
+    plot_elevation_limits = tuple(sorted((float(elevation_limits[0]), float(elevation_limits[1]))))
+    return plot_azimuth_limits, plot_elevation_limits
+
+
+def make_rf_bivariate_colormap(
     azimuth_limits: tuple[float, float],
     elevation_limits: tuple[float, float],
 ):
-    if ColorMap2DBremm is None:
+    if BivariateColormap is None:
         raise ImportError(
-            "pycolormap-2d is required for RF-center FOV overlay colors. "
-            "Install it with: pip install pycolormap-2d"
+            "pycolorbar is required for RF-center FOV overlay colors. "
+            "Install it with: pip install pycolorbar"
         )
-    cmap_classes = {
-        "Bremm": ColorMap2DBremm,
-        "CubeDiagonal": ColorMap2DCubeDiagonal,
-        "Schumann": ColorMap2DSchumann,
-        "Steiger": ColorMap2DSteiger,
-        "Teuling2": ColorMap2DTeuling2,
-        "Ziegler": ColorMap2DZiegler,
-    }
-    cmap_class = cmap_classes.get(PYCOLORMAP_2D_NAME)
-    if cmap_class is None:
-        valid = ", ".join(sorted(cmap_classes))
-        raise ValueError(f"Unknown PYCOLORMAP_2D_NAME={PYCOLORMAP_2D_NAME!r}. Valid options: {valid}")
-    return cmap_class(
-        range_x=(float(azimuth_limits[0]), float(azimuth_limits[1])),
-        range_y=(float(elevation_limits[0]), float(elevation_limits[1])),
+    return BivariateColormap.from_name(
+        PYCOLORBAR_BIVARIATE_CMAP_NAME,
+        n=BIVARIATE_CMAP_WHEEL_RESOLUTION,
+        diagonal_tilt=PYCOLORBAR_TEULING_DIAGONAL_TILT,
+        offdiag_tilt=PYCOLORBAR_TEULING_OFFDIAG_TILT,
     )
 
 
-def sample_pycolormap_2d(rf_colormap, x: float, y: float) -> np.ndarray:
-    if hasattr(rf_colormap, "sample"):
-        color = rf_colormap.sample(float(x), float(y))
-    else:
-        color = rf_colormap(float(x), float(y))
+def sample_rf_bivariate_colormap(
+    rf_colormap,
+    x: np.ndarray,
+    y: np.ndarray,
+    azimuth_limits: tuple[float, float],
+    elevation_limits: tuple[float, float],
+) -> np.ndarray:
+    norm_x = matplotlib.colors.Normalize(vmin=float(azimuth_limits[0]), vmax=float(azimuth_limits[1]), clip=True)
+    norm_y = matplotlib.colors.Normalize(vmin=float(elevation_limits[0]), vmax=float(elevation_limits[1]), clip=True)
+    color = rf_colormap(np.asarray(x, dtype=float), np.asarray(y, dtype=float), norm_x=norm_x, norm_y=norm_y)
     color = np.asarray(color, dtype=float).reshape(-1)
-    if color.size < 3:
-        raise ValueError("pycolormap-2d returned a color with fewer than 3 channels")
-    color = color[:3]
     if np.nanmax(color) > 1.0:
         color = color / 255.0
+    if color.size and color.size % 4 == 0:
+        color = color.reshape(np.asarray(x).shape + (4,))[..., :3]
+    elif color.size and color.size % 3 == 0:
+        color = color.reshape(np.asarray(x).shape + (3,))
+    else:
+        raise ValueError("pycolorbar returned a color array with an unexpected shape")
     return np.clip(color, 0.0, 1.0)
 
 
@@ -4011,25 +4538,20 @@ def rf_position_to_rgb(
     *,
     rf_colormap,
 ) -> np.ndarray:
-    """Map RF centers to RGB using pycolormap-2d.
+    """Map RF centers to RGB using pycolorbar.
 
     The ranges are the visual-field azimuth/elevation limits, so the same
     coordinates used in the Gaussian RF fits are passed directly to the 2D
-    colormap. This replaces the older hand-rolled HSV mapping.
+    colormap.
     """
     azimuth = np.asarray(azimuth, dtype=float)
     elevation = np.asarray(elevation, dtype=float)
     az_b, el_b = np.broadcast_arrays(azimuth, elevation)
-    rgb = np.empty(az_b.shape + (3,), dtype=float)
-
-    flat_rgb = rgb.reshape(-1, 3)
-    flat_az = az_b.ravel()
-    flat_el = el_b.ravel()
-    for i, (az, el) in enumerate(zip(flat_az, flat_el)):
-        if np.isfinite(az) and np.isfinite(el):
-            flat_rgb[i, :] = sample_pycolormap_2d(rf_colormap, float(az), float(el))
-        else:
-            flat_rgb[i, :] = np.array([0.5, 0.5, 0.5], dtype=float)
+    rgb = sample_rf_bivariate_colormap(rf_colormap, az_b, el_b, azimuth_limits, elevation_limits)
+    finite = np.isfinite(az_b) & np.isfinite(el_b)
+    if not np.all(finite):
+        rgb = np.asarray(rgb, dtype=float).copy()
+        rgb[~finite, :] = np.array([0.5, 0.5, 0.5], dtype=float)
     return rgb
 
 
@@ -4118,6 +4640,7 @@ def roi_rgba_overlay(
     color: str,
     alpha: float,
     x_offset: int = 0,
+    y_offset: int = 0,
 ) -> np.ndarray:
     height, width = int(image_shape[0]), int(image_shape[1])
     overlay = np.zeros((height, width, 4), dtype=np.float32)
@@ -4128,7 +4651,7 @@ def roi_rgba_overlay(
         if roi_idx < 0 or roi_idx >= len(stat):
             continue
         roi = stat_entry(stat[int(roi_idx)])
-        ypix = np.asarray(roi["ypix"], dtype=int)
+        ypix = np.asarray(roi["ypix"], dtype=int) + int(y_offset)
         xpix = np.asarray(roi["xpix"], dtype=int) + int(x_offset)
         valid = (ypix >= 0) & (ypix < height) & (xpix >= 0) & (xpix < width)
         if not np.any(valid):
@@ -4151,6 +4674,7 @@ def rf_roi_rgba_overlay(
     image_shape: tuple[int, int],
     x_offset: int,
     alpha: float,
+    y_offset: int = 0,
 ) -> np.ndarray:
     height, width = int(image_shape[0]), int(image_shape[1])
     overlay = np.zeros((height, width, 4), dtype=np.float32)
@@ -4163,7 +4687,7 @@ def rf_roi_rgba_overlay(
         if roi_idx < 0 or roi_idx >= len(stat):
             continue
         roi = stat_entry(stat[roi_idx])
-        ypix = np.asarray(roi["ypix"], dtype=int)
+        ypix = np.asarray(roi["ypix"], dtype=int) + int(y_offset)
         xpix = np.asarray(roi["xpix"], dtype=int) + int(x_offset)
         valid = (ypix >= 0) & (ypix < height) & (xpix >= 0) & (xpix < width)
         if not np.any(valid):
@@ -4193,6 +4717,7 @@ def scalar_roi_rgba_overlay(
     image_shape: tuple[int, int],
     x_offset: int,
     alpha: float,
+    y_offset: int = 0,
 ) -> np.ndarray:
     height, width = int(image_shape[0]), int(image_shape[1])
     overlay = np.zeros((height, width, 4), dtype=np.float32)
@@ -4205,7 +4730,7 @@ def scalar_roi_rgba_overlay(
         if roi_idx < 0 or roi_idx >= len(stat):
             continue
         roi = stat_entry(stat[roi_idx])
-        ypix = np.asarray(roi["ypix"], dtype=int)
+        ypix = np.asarray(roi["ypix"], dtype=int) + int(y_offset)
         xpix = np.asarray(roi["xpix"], dtype=int) + int(x_offset)
         valid = (ypix >= 0) & (ypix < height) & (xpix >= 0) & (xpix < width)
         if not np.any(valid):
@@ -4231,7 +4756,7 @@ def plot_rois(*, fov: np.ndarray, stat: np.ndarray, roi_indices: np.ndarray, tit
     overlay_artist.set_rasterized(True)
     ax.set_title(title, fontsize=16, pad=10)
     ax.set_axis_off()
-    save_figure(fig, output_base, dpi=220)
+    save_figure(fig, output_base, dpi=ROI_CONTOUR_OVERLAY_DPI)
 
 
 # =============================================================================
@@ -4680,7 +5205,7 @@ def plot_aggregate_center_map(
 ) -> int:
     use_rows = [row for row in rows if row["is_good"] or not good_only]
     azimuth_limits, elevation_limits = aggregate_visual_limits(rows)
-    rf_colormap = make_pycolormap_2d(azimuth_limits, elevation_limits)
+    rf_colormap = make_rf_bivariate_colormap(azimuth_limits, elevation_limits)
     azimuth = np.asarray([row["azimuth_deg"] for row in use_rows], dtype=float)
     elevation = np.asarray([row["elevation_deg"] for row in use_rows], dtype=float)
     significant = np.ones(len(use_rows), dtype=bool)
@@ -4811,7 +5336,7 @@ def plot_aggregate_vertical_center_density_summary(
         return 0
 
     azimuth_limits, elevation_limits = aggregate_visual_limits(rows)
-    rf_colormap = make_pycolormap_2d(azimuth_limits, elevation_limits)
+    rf_colormap = make_rf_bivariate_colormap(azimuth_limits, elevation_limits)
 
     gauss = np.asarray(
         [

@@ -15,9 +15,10 @@ function [sessions, report] = ALFexporter(s2pPaths, ALFroot)
 %
 %   Output
 %   ------
-%   sessions : table
-%       Loader-ready table with variables subject, date, and session. Pass this
-%       directly to ALFloader(ALFroot, sessions). Failed exports are omitted.
+%   sessions : struct array
+%       Loader-ready struct array with string scalar fields subject, date, and
+%       session. Pass this directly to ALFloader(ALFroot, sessions). Failed
+%       exports are omitted.
 %
 %   report : table
 %       One row per Suite2p path with ok/status/message/nWritten/writtenFiles.
@@ -47,7 +48,8 @@ function [sessions, report] = ALFexporter(s2pPaths, ALFroot)
 %       "D:\Data\2P\NM023\Processed\20260209\1"
 %       "D:\Data\2P\NM034\Processed\20260301\1"
 %   ];
-%   sessions = ALFexporter(s2pPaths, "D:\Pipeline\Data");
+%   [sessions, report] = ALFexporter(s2pPaths, "D:\Pipeline\Data");
+%   ALF = ALFloader("D:\Pipeline\Data", sessions);
 
     if nargin ~= 2
         error('ALFexporter requires exactly two inputs: ALFexporter(s2pPaths, ALFroot).');
@@ -169,23 +171,40 @@ function [sessions, report] = ALFexporter(s2pPaths, ALFroot)
             'writtenFiles'});
 
     goodRows = ok & subject ~= "" & date ~= "" & session ~= "";
-    sessions = table( ...
-        subject(goodRows), ...
-        date(goodRows), ...
-        session(goodRows), ...
-        'VariableNames', {'subject', 'date', 'session'});
-    sessions = unique(sessions, 'rows', 'stable');
-    sessions.Properties.UserData = struct('exportReport', report);
+    sessions = localSessionStructArray(subject(goodRows), date(goodRows), session(goodRows));
 
     nSkipped = nnz(status == "skipped");
     fprintf('\nALFexporter summary: %d exported, %d skipped, %d failed.\n', ...
         nnz(ok) - nSkipped, nSkipped, nnz(~ok));
-    fprintf('ALFexporter sessions for ALFloader: %d\n', height(sessions));
+    fprintf('ALFexporter sessions for ALFloader: %d\n', numel(sessions));
 
     if any(~ok)
         warning('ALFexporter:SomeRunsFailed', ...
             '%d of %d Suite2p run(s) failed. Check report.message.', nnz(~ok), n);
     end
+end
+
+function sessions = localSessionStructArray(subject, date, session)
+    if isempty(subject)
+        sessions = localEmptySessionStructArray();
+        return
+    end
+
+    sessionTable = table( ...
+        string(subject(:)), ...
+        string(date(:)), ...
+        string(session(:)), ...
+        'VariableNames', {'subject', 'date', 'session'});
+    sessionTable = unique(sessionTable, 'rows', 'stable');
+
+    sessions = table2struct(sessionTable);
+end
+
+function sessions = localEmptySessionStructArray()
+    sessions = repmat(struct( ...
+        'subject', string.empty(0, 0), ...
+        'date', string.empty(0, 0), ...
+        'session', string.empty(0, 0)), 0, 1);
 end
 
 function paths = normalizePathList(value, name)
