@@ -11,6 +11,7 @@ import numpy as np
 
 try:
     from .calcium_export import (
+        _data_paths_with_known_edge_cases,
         _load_dict_npy,
         _raw_sessions_from_db,
         _session_time_zero,
@@ -34,6 +35,7 @@ try:
     )
 except ImportError:
     from calcium_export import (
+        _data_paths_with_known_edge_cases,
         _load_dict_npy,
         _raw_sessions_from_db,
         _session_time_zero,
@@ -80,6 +82,12 @@ def export_valid_s2p_calcium(
     grouped_runs: dict[tuple[str, str, str], list[tuple[Path, list[str]]]] = defaultdict(list)
     for run_path, info, data_paths in zip(valid_paths, session_info, data_path_lists):
         subject, date, session = info
+        if stim_type == "sparse_noise":
+            try:
+                subject, date, session = _sparse_noise_session_key(Path(run_path))
+            except Exception as exc:
+                print(f"[EXCLUDED] {run_path} | Could not resolve one sparse-noise session: {exc}")
+                continue
         grouped_runs[(subject, date, session)].append((Path(run_path), list(data_paths)))
 
     n_success = 0
@@ -98,14 +106,14 @@ def export_valid_s2p_calcium(
         for run_path, data_paths in run_candidates:
             print(f"\n[EXPORT] {subject} {date} session {session}: {run_path}")
             try:
+                branch_data_paths = _export_branch_data_paths(run_path, data_paths)
                 written = []
                 written.extend(single_session_calcium_export(run_path, out, stim_type=stim_type))
-                if _is_multi_session_data_path_list(data_paths):
+                if _is_multi_session_data_path_list(branch_data_paths):
                     written.extend(
-                        _export_wheel_and_sparse_for_raw_sessions(
+                        _export_wheel_and_sparse_for_sparse_noise_session(
                             run_path,
                             out,
-                            stim_type=stim_type,
                             encoder_counts_per_revolution=encoder_counts_per_revolution,
                             sparse_noise_edges_deg=sparse_noise_edges_deg,
                         )
@@ -169,42 +177,83 @@ def _is_multi_session_data_path_list(data_paths: list[str]) -> bool:
     return len(set(sessions)) > 1
 
 
-def _export_wheel_and_sparse_for_raw_sessions(
+def _export_branch_data_paths(run_path: Path, data_paths: list[str]) -> list[str]:
+    run_db = _load_dict_npy(Path(run_path) / "db.npy", "run-level Suite2p db.npy")
+    raw_data_paths = run_db.get("data_path", data_paths)
+    corrected = _data_paths_with_known_edge_cases(_as_list_like(raw_data_paths), Path(run_path))
+    return [str(value) for value in corrected]
+
+
+def _as_list_like(value) -> list:
+    if value is None:
+        return []
+    if isinstance(value, (str, bytes, Path)):
+        return [value]
+    try:
+        return list(value)
+    except TypeError:
+        return [value]
+
+
+def _sparse_noise_session_key(run_path: Path) -> tuple[str, str, str]:
+    raw_session = _sparse_noise_raw_session(run_path)
+    return raw_session.subject, raw_session.date, raw_session.session
+
+
+def _sparse_noise_raw_session(run_path: Path):
+    run_db = _load_dict_npy(run_path / "db.npy", "run-level Suite2p db.npy")
+    raw_sessions = _raw_sessions_from_db(run_db, run_path)
+    matches = [
+        raw_session
+        for raw_session in raw_sessions
+        if _raw_session_has_file(raw_session, "SparseNoise_Log.bin")
+    ]
+    if not matches:
+        raise FileNotFoundError("none of the raw sessions contains SparseNoise_Log.bin")
+    if len(matches) > 1:
+        raise ValueError(
+            "multiple raw sessions contain SparseNoise_Log.bin: "
+            f"{[raw_session.session for raw_session in matches]}"
+        )
+    return matches[0]
+
+
+def _raw_session_has_file(raw_session, filename: str) -> bool:
+    try:
+        _find_raw_file(raw_session.local_raw_path, filename)
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def _export_wheel_and_sparse_for_sparse_noise_session(
     run_path: Path,
     out: Path,
     *,
-    stim_type: str,
     encoder_counts_per_revolution: float,
     sparse_noise_edges_deg,
 ) -> list[Path]:
-    run_db = _load_dict_npy(run_path / "db.npy", "run-level Suite2p db.npy")
-    raw_sessions = _raw_sessions_from_db(run_db, run_path)
+    raw_session = _sparse_noise_raw_session(run_path)
     written: list[Path] = []
 
-    for raw_session in raw_sessions:
-        print(
-            f"[EXPORT wheel] {raw_session.subject} {raw_session.date} "
-            f"session {raw_session.session}"
+    print(
+        f"[EXPORT wheel] {raw_session.subject} {raw_session.date} "
+        f"session {raw_session.session}"
+    )
+    written.extend(
+        _export_wheel_raw_session(
+            raw_session,
+            out,
+            encoder_counts_per_revolution=encoder_counts_per_revolution,
         )
-        written.extend(
-            _export_wheel_raw_session(
-                raw_session,
-                out,
-                encoder_counts_per_revolution=encoder_counts_per_revolution,
-            )
+    )
+    written.extend(
+        _export_sparse_noise_raw_session(
+            raw_session,
+            out,
+            stimulus_edges_deg=sparse_noise_edges_deg,
         )
-
-        if stim_type == "sparse_noise":
-            try:
-                written.extend(
-                    _export_sparse_noise_raw_session(
-                        raw_session,
-                        out,
-                        stimulus_edges_deg=sparse_noise_edges_deg,
-                    )
-                )
-            except FileNotFoundError as sparse_exc:
-                print(f"[SKIP sparse_noise session {raw_session.session}] {sparse_exc}")
+    )
 
     return written
 

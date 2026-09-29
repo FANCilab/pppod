@@ -1,16 +1,22 @@
 function [rf_visDeg, x1, y1] = interpolateRFtoVisualDegrees(rf, stimEdges)
 
+% stimEdges is [left right bottom top]. The y edge order is preserved so RF
+% rows map to the exported elevation coordinates without flipping signs.
 gridW = diff(stimEdges(1:2)) / size(rf,2);
-gridH = -diff(stimEdges(3:4)) / size(rf,1);
+gridH = diff(stimEdges(3:4)) / size(rf,1);
 
 % gridpoints of rf in visual degrees
 gridX = linspace(stimEdges(1)+0.5*gridW, stimEdges(2)-0.5*gridW, size(rf,2));
-gridY = linspace(stimEdges(3)-0.5*gridH, stimEdges(4)+0.5*gridH, size(rf,1));
+gridY = linspace(stimEdges(3)+0.5*gridH, stimEdges(4)-0.5*gridH, size(rf,1));
 [x0, y0] = meshgrid(gridX, gridY);
 
 % vectors x1 and y1 specify gridlines with distance of 1 degree
 x1 = ceil(gridX(1)) : floor(gridX(end));
-y1 = floor(gridY(1)) : -1 : ceil(gridY(end));
+if gridY(1) <= gridY(end)
+    y1 = ceil(gridY(1)) : floor(gridY(end));
+else
+    y1 = floor(gridY(1)) : -1 : ceil(gridY(end));
+end
 
 % interp2 needs query coordinates with matching sizes, so build the full
 % visual-degree query grid from the x/y vectors before interpolating.

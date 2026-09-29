@@ -113,44 +113,7 @@ def s2p_run_paths(root_folder):
 
 def s2p_filter_run_paths(s2p_run_paths):
     """
-    Filter Suite2p run output folders to only runs that correspond to exactly
-    one subject and one date. Multiple sessions are allowed in db["data_path"]
-    order because Suite2p may concatenate them.
-
-    For each Suite2p run path:
-      1. The Suite2p run path string itself must contain exactly one date-like
-         folder component.
-      2. The top-level db.npy must exist alongside planeX folders.
-      3. db["data_path"] must exist.
-      4. Every entry in db["data_path"] must resolve to:
-             subject/date/session
-         and all entries must share the same subject/date
-         assuming raw data paths are formatted as:
-             .../Subject/Date/Session
-      5. The date found in db["data_path"] must match the date found in the
-         Suite2p run path.
-
-    Parameters
-    ----------
-    s2p_run_paths : list[str or pathlib.Path]
-        Output from s2p_run_paths(...).
-
-    Returns
-    -------
-    valid_paths : list[pathlib.Path]
-        Suite2p run paths that passed the filter.
-
-    session_info : list[tuple]
-        One tuple per valid path:
-            (subject, formatted_date, session_label)
-
-        formatted_date is returned as YYYY-MM-DD. For multi-session runs,
-        session_label joins the sessions in db["data_path"] order, e.g. "1_2".
-
-    data_path_lists : list[list[str]]
-        One list per valid path. Each original db["data_path"] entry is
-        trimmed to:
-            subject/date/session
+    DEPRICATED FUNCTION DO NOT USE AT ANY COST
     """
 
     from pathlib import Path
@@ -323,29 +286,56 @@ def s2p_filter_run_paths(s2p_run_paths):
                 formatted_date = parsed_date.strftime("%Y-%m-%d")
                 date_hits.append((i, formatted_date))
 
-            # Each raw data path must contain exactly one date folder.
-            if len(date_hits) != 1:
+            # Each raw data path usually contains exactly one date folder. Some
+            # db.py files store a shortened .../2P/subject/session path; in that
+            # case use the already-validated Suite2p run-path date.
+            if len(date_hits) == 0:
+                two_p_indices = [
+                    i for i, part in enumerate(raw_parts)
+                    if part.lower() == "2p"
+                ]
+                if not two_p_indices:
+                    extracted_subject_date_session = []
+                    exclusion_reason = (
+                        f'Could not infer missing date for db["data_path"] entry; '
+                        f'path "{raw_path_string}" had no date-like folder and no "2P" folder'
+                    )
+                    break
+
+                two_p_index = two_p_indices[-1]
+                if two_p_index + 2 >= len(raw_parts):
+                    extracted_subject_date_session = []
+                    exclusion_reason = (
+                        f'Could not infer subject/session for date-less db["data_path"] entry; '
+                        f'expected .../2P/Subject/Session in "{raw_path_string}"'
+                    )
+                    break
+
+                subject = raw_parts[two_p_index + 1]
+                formatted_date = run_date
+                session = raw_parts[two_p_index + 2]
+            elif len(date_hits) != 1:
                 extracted_subject_date_session = []
                 exclusion_reason = (
                     f'Each db["data_path"] entry must contain exactly one date-like folder; '
                     f'path "{raw_path_string}" had {len(date_hits)} date hits: {date_hits}'
                 )
                 break
+            else:
+                date_index, formatted_date = date_hits[0]
 
-            date_index, formatted_date = date_hits[0]
+                # Raw data path must be:
+                #   ... / Subject / Date / Session
+                if date_index == 0 or date_index + 1 >= len(raw_parts):
+                    extracted_subject_date_session = []
+                    exclusion_reason = (
+                        f'Raw data path must be formatted as .../Subject/Date/Session; '
+                        f'could not extract subject/session from "{raw_path_string}"'
+                    )
+                    break
 
-            # Raw data path must be:
-            #   ... / Subject / Date / Session
-            if date_index == 0 or date_index + 1 >= len(raw_parts):
-                extracted_subject_date_session = []
-                exclusion_reason = (
-                    f'Raw data path must be formatted as .../Subject/Date/Session; '
-                    f'could not extract subject/session from "{raw_path_string}"'
-                )
-                break
-
-            subject = raw_parts[date_index - 1]
-            session = raw_parts[date_index + 1]
+                subject = raw_parts[date_index - 1]
+                session = raw_parts[date_index + 1]
 
             if not subject or not session:
                 extracted_subject_date_session = []

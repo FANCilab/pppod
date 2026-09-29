@@ -1,0 +1,9 @@
+# Python dependencies for masterPipeline_single.m (ONEpy exporter + RFPlot_single.py)
+numpy
+matplotlib
+python-dateutil
+sparse
+tifffile
+h5py
+# optional: 2D colour wheel in RF/ROI overlays
+pycolormap-2d

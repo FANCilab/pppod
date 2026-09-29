@@ -263,11 +263,19 @@ def _normalize_stim_type(stim_type: str) -> str:
 
 
 def _raw_sessions_from_db(db: dict, s2p_run_path: Path) -> tuple[RawSessionInfo, ...]:
-    data_paths = _as_list(db.get("data_path"))
+    data_paths = _data_paths_with_known_edge_cases(_as_list(db.get("data_path")), s2p_run_path)
     if not data_paths:
         raise ValueError('Run-level db.npy must contain non-empty "data_path"')
 
-    parsed = [_parse_subject_date_session(str(path_value)) for path_value in data_paths]
+    run_date_folder = None
+    try:
+        parsed = [_parse_subject_date_session(str(path_value)) for path_value in data_paths]
+    except ValueError:
+        run_date_folder, run_date = _date_from_run_path(s2p_run_path)
+        parsed = [
+            _parse_subject_date_session(str(path_value), fallback_date=run_date)
+            for path_value in data_paths
+        ]
     subjects = {item[0] for item in parsed}
     dates = {item[1] for item in parsed}
 
@@ -280,7 +288,11 @@ def _raw_sessions_from_db(db: dict, s2p_run_path: Path) -> tuple[RawSessionInfo,
     local_2p_root = _infer_local_2p_root(s2p_run_path)
     raw_sessions: list[RawSessionInfo] = []
     for path_value, (subject, date, session) in zip(data_paths, parsed):
-        local_raw_path = _local_raw_path(path_value, local_2p_root)
+        local_raw_path = _local_raw_path(
+            path_value,
+            local_2p_root,
+            fallback_date_folder=run_date_folder,
+        )
         timing_path = _find_timing_csv(local_raw_path)
         raw_sessions.append(
             RawSessionInfo(
@@ -298,6 +310,57 @@ def _raw_sessions_from_db(db: dict, s2p_run_path: Path) -> tuple[RawSessionInfo,
     return tuple(raw_sessions)
 
 
+def _data_paths_with_known_edge_cases(data_paths: list, s2p_run_path: Path) -> list:
+    """Return Suite2p db data paths, correcting known mishandled runs.
+
+    NM036/20260507 was processed as a fictional raw session "3", but the TIFFs
+    came from raw sessions 1 and 2. Keep this hardcoded and exact so all normal
+    exporter code paths keep using the db.npy metadata unchanged.
+
+    NM037/20260609/Processed contains TIFFs from raw sessions 1, 2, and 3, but
+    its Suite2p db.npy lists only sessions 1 and 2. Session 1 is the sparse-noise
+    session; the exporter still selects only that session after validating the
+    full concatenated frame count against all three raw sessions.
+    """
+
+    if _is_nm036_20260507_fictional_session3_run(data_paths, s2p_run_path):
+        return [
+            "Z:/Data/2P/NM036/20260507/1",
+            "Z:/Data/2P/NM036/20260507/2",
+        ]
+
+    if _is_nm037_20260609_missing_session3_run(data_paths, s2p_run_path):
+        return [
+            "Z:/Data/2P/NM037/20260609/1",
+            "Z:/Data/2P/NM037/20260609/2",
+            "Z:/Data/2P/NM037/20260609/3",
+        ]
+
+    return data_paths
+
+
+def _is_nm036_20260507_fictional_session3_run(data_paths: list, s2p_run_path: Path) -> bool:
+    if [str(value).replace("\\", "/").rstrip("/") for value in data_paths] != ["Z:/Data/2P/NM036/3"]:
+        return False
+
+    parts = [part.lower() for part in _split_path_parts(str(s2p_run_path))]
+    required_tail = ["2p", "nm036", "20260507", "processed", "1"]
+    return len(parts) >= len(required_tail) and parts[-len(required_tail):] == required_tail
+
+
+def _is_nm037_20260609_missing_session3_run(data_paths: list, s2p_run_path: Path) -> bool:
+    normalized_data_paths = [str(value).replace("\\", "/").rstrip("/") for value in data_paths]
+    if normalized_data_paths != [
+        "Z:/Data/2P/NM037/20260609/1",
+        "Z:/Data/2P/NM037/20260609/2",
+    ]:
+        return False
+
+    parts = [part.lower() for part in _split_path_parts(str(s2p_run_path))]
+    required_tail = ["2p", "nm037", "20260609", "processed"]
+    return len(parts) >= len(required_tail) and parts[-len(required_tail):] == required_tail
+
+
 def _select_session(
     raw_sessions: tuple[RawSessionInfo, ...],
     stim_type: str,
@@ -310,7 +373,7 @@ def _select_session(
     matches = [
         raw_session
         for raw_session in raw_sessions
-        if (raw_session.local_raw_path / "SparseNoise_Log.bin").is_file()
+        if any(path.is_file() for path in _raw_file_candidates(raw_session.local_raw_path, "SparseNoise_Log.bin"))
     ]
     if not matches:
         raise FileNotFoundError(
@@ -351,7 +414,7 @@ def _select_session(
     )
 
 
-def _parse_subject_date_session(raw_path: str) -> tuple[str, str, str]:
+def _parse_subject_date_session(raw_path: str, fallback_date: str | None = None) -> tuple[str, str, str]:
     parts = _split_path_parts(raw_path)
     two_p_indices = [i for i, part in enumerate(parts) if part.lower() == "2p"]
     if not two_p_indices:
@@ -359,14 +422,21 @@ def _parse_subject_date_session(raw_path: str) -> tuple[str, str, str]:
 
     i_two_p = two_p_indices[-1]
     if i_two_p + 3 >= len(parts):
-        raise ValueError(
-            "db data_path must contain .../2P/<subject>/<date>/<session>: "
-            f"{raw_path}"
-        )
+        if fallback_date is None or i_two_p + 2 >= len(parts):
+            raise ValueError(
+                "db data_path must contain .../2P/<subject>/<date>/<session> "
+                "or, with a Suite2p run-path date fallback, .../2P/<subject>/<session>: "
+                f"{raw_path}"
+            )
 
-    subject = parts[i_two_p + 1]
-    date = _format_date(parts[i_two_p + 2])
-    session = parts[i_two_p + 3]
+        subject = parts[i_two_p + 1]
+        date = fallback_date
+        session = parts[i_two_p + 2]
+    else:
+        subject = parts[i_two_p + 1]
+        date = _format_date(parts[i_two_p + 2])
+        session = parts[i_two_p + 3]
+
 
     if not subject or not session:
         raise ValueError(f"Empty subject or session parsed from db data_path: {raw_path}")
@@ -381,6 +451,24 @@ def _format_date(token: str) -> str:
     if not match:
         raise ValueError(f"Date folder must be YYYYMMDD or YYYY-MM-DD, got: {token}")
     return f"{match.group(1)}-{match.group(2)}-{match.group(3)}"
+
+
+def _date_from_run_path(s2p_run_path: Path) -> tuple[str, str]:
+    matches: dict[str, str] = {}
+    for part in _split_path_parts(str(s2p_run_path)):
+        try:
+            formatted = _format_date(part)
+        except ValueError:
+            continue
+        matches.setdefault(formatted, part)
+
+    if len(matches) != 1:
+        raise ValueError(
+            "Suite2p run path must contain exactly one YYYYMMDD or YYYY-MM-DD "
+            f"date folder for db data_path fallback; found {len(matches)}: {sorted(matches)}"
+        )
+    formatted, folder = next(iter(matches.items()))
+    return folder, formatted
 
 
 def _split_path_parts(path_string: str) -> list[str]:
@@ -400,13 +488,15 @@ def _infer_local_2p_root(s2p_run_path: Path) -> Path:
     )
 
 
-def _local_raw_path(raw_data_path, local_2p_root: Path) -> Path:
+def _local_raw_path(raw_data_path, local_2p_root: Path, fallback_date_folder: str | None = None) -> Path:
     parts = _split_path_parts(str(raw_data_path))
     two_p_indices = [i for i, part in enumerate(parts) if part.lower() == "2p"]
     if not two_p_indices:
         raise ValueError(f'Could not remap raw path because it has no "2P" component: {raw_data_path}')
 
     suffix = parts[two_p_indices[-1] + 1 :]
+    if len(suffix) == 2 and fallback_date_folder is not None:
+        suffix = [suffix[0], fallback_date_folder, suffix[1]]
     return local_2p_root.joinpath(*suffix)
 
 
@@ -974,10 +1064,11 @@ def _candidate_count_from_zs(value, source: str) -> list[tuple[str, int]]:
     return []
 
 def _load_iscell_by_plane(s2p_run_path: Path, planes: list[PlaneInfo]) -> dict[Path, np.ndarray]:
-    """Map visually curated combined/iscell.npy labels back to each FOV.
+    """Load Suite2p iscell labels for each exported FOV.
 
-    The Suite2p combined GUI is the authoritative curation source.  Therefore
-    this function never falls back to planeX/iscell.npy for labels.
+    The Suite2p combined GUI is the authoritative curation source when it
+    exists. Single-FOV Suite2p runs may not have a combined folder; in that
+    specific case, use the curated plane0/iscell.npy labels directly.
 
     Mapping rule:
       combined/iscell.npy row i belongs with combined/stat.npy row i.
@@ -985,18 +1076,23 @@ def _load_iscell_by_plane(s2p_run_path: Path, planes: list[PlaneInfo]) -> dict[P
       Within each iplane group, rows are kept in combined/stat row order and
       assigned to that plane's ROI order.
 
-    planeX/iscell.npy may be used only to verify row order via the unchanged
-    classifier score column, not as a label source.
+    For multi-plane runs, planeX/iscell.npy may be used only to verify row
+    order via the unchanged classifier score column, not as a label source.
     """
 
     combined_dir = s2p_run_path / "combined"
     combined_iscell_path = combined_dir / "iscell.npy"
     combined_stat_path = combined_dir / "stat.npy"
 
+    if not combined_dir.exists() and len(planes) == 1:
+        plane = planes[0]
+        return {plane.path: _load_single_plane_iscell(plane)}
+
     if not combined_iscell_path.is_file():
         raise FileNotFoundError(
             "Missing combined/iscell.npy. Cell labels must come from the visually "
-            f"curated Suite2p combined view, not plane-level iscell files: {combined_iscell_path}"
+            "curated Suite2p combined view for multi-plane runs. Single-plane runs "
+            f"without a combined folder use plane-level labels. Missing: {combined_iscell_path}"
         )
     if not combined_stat_path.is_file():
         raise FileNotFoundError(
@@ -1096,6 +1192,36 @@ def _load_iscell_by_plane(s2p_run_path: Path, planes: list[PlaneInfo]) -> dict[P
         iscell_by_plane[plane.path] = labels
 
     return iscell_by_plane
+
+
+def _load_single_plane_iscell(plane: PlaneInfo) -> np.ndarray:
+    plane_iscell_path = plane.path / "iscell.npy"
+    if not plane_iscell_path.is_file():
+        raise FileNotFoundError(
+            "Missing plane-level iscell.npy for single-plane Suite2p run without "
+            f"a combined folder: {plane_iscell_path}"
+        )
+
+    F = np.load(plane.path / "F.npy", allow_pickle=False)
+    if F.ndim != 2:
+        raise ValueError(f"F.npy must be 2D [nROIs, nFrames]: {plane.path / 'F.npy'}")
+
+    iscell = np.load(plane_iscell_path, allow_pickle=False)
+    if iscell.ndim != 2:
+        raise ValueError(f"{plane_iscell_path} must be 2D, got {iscell.shape}")
+    if iscell.shape[0] != F.shape[0]:
+        raise ValueError(
+            f"{plane_iscell_path} has {iscell.shape[0]} rows but "
+            f"{plane.path / 'F.npy'} has {F.shape[0]} ROIs"
+        )
+
+    warnings.warn(
+        f"{plane.path.parent / 'combined'} is missing for a single-plane Suite2p run; "
+        f"using curated labels from {plane_iscell_path}.",
+        RuntimeWarning,
+        stacklevel=2,
+    )
+    return iscell.copy()
 
 
 def _combined_stat_plane_index(roi_stat, roi_index: int, stat_path: Path) -> int:

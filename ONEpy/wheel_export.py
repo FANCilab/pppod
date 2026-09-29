@@ -10,6 +10,7 @@ import numpy as np
 try:
     from .calcium_export import (
         _as_list,
+        _date_from_run_path,
         _infer_local_2p_root,
         _load_dict_npy,
         _local_raw_path,
@@ -20,6 +21,7 @@ try:
 except ImportError:
     from calcium_export import (
         _as_list,
+        _date_from_run_path,
         _infer_local_2p_root,
         _load_dict_npy,
         _local_raw_path,
@@ -79,7 +81,15 @@ def _session_from_run_db(s2p_run_path: Path) -> tuple[str, str, str, Path]:
     if not data_paths:
         raise ValueError('Run-level db.npy must contain non-empty "data_path"')
 
-    parsed = [_parse_subject_date_session(str(path_value)) for path_value in data_paths]
+    run_date_folder = None
+    try:
+        parsed = [_parse_subject_date_session(str(path_value)) for path_value in data_paths]
+    except ValueError:
+        run_date_folder, run_date = _date_from_run_path(s2p_run_path)
+        parsed = [
+            _parse_subject_date_session(str(path_value), fallback_date=run_date)
+            for path_value in data_paths
+        ]
     subjects = {item[0] for item in parsed}
     dates = {item[1] for item in parsed}
     sessions = {item[2] for item in parsed}
@@ -90,7 +100,11 @@ def _session_from_run_db(s2p_run_path: Path) -> tuple[str, str, str, Path]:
         )
 
     local_2p_root = _infer_local_2p_root(s2p_run_path)
-    raw_path = _local_raw_path(data_paths[0], local_2p_root)
+    raw_path = _local_raw_path(
+        data_paths[0],
+        local_2p_root,
+        fallback_date_folder=run_date_folder,
+    )
     subject, date, session = parsed[0]
     return subject, date, session, raw_path
 
